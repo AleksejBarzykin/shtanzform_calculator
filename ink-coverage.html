@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Расчёт запечатки: % покрытия красками (CMYK + Pantone)</title>
+<style>
+:root {
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --text: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --border: #e5e5e7;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --error-bg: #fdecec;
+  --error-text: #b3261e;
+  --notice-bg: #fff8e6;
+  --notice-text: #8a6d1a;
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
+  --ink-c: #00a0e0;
+  --ink-m: #e5007d;
+  --ink-y: #ffd500;
+  --ink-k: #1d1d1f;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1000px; margin: 0 auto; padding: 48px 24px 64px; display: flex; flex-direction: column; gap: 24px; }
+.header { text-align: center; }
+.header h1 { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; }
+.subtitle { font-size: 15px; color: var(--text-secondary); margin: 0; }
+.card { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 24px; }
+.card h2 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
+.card h3 { font-size: 15px; font-weight: 600; margin: 20px 0 10px; }
+
+.dropzone {
+  border: 2px dashed var(--border); border-radius: var(--radius-md);
+  padding: 36px 20px; text-align: center; transition: .15s; cursor: pointer;
+}
+.dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: #f0f7ff; }
+.dropzone-text { font-size: 15px; margin: 0 0 4px; }
+.dropzone-subtext { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px; }
+
+.btn {
+  border: none; border-radius: 980px; padding: 9px 20px; font-size: 14px; font-weight: 500;
+  cursor: pointer; font-family: inherit; transition: .15s;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: #e8e8ed; color: var(--text); }
+.btn-secondary:hover { background: #dcdce1; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px 20px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .03em; }
+.field select, .field input[type=number] {
+  font-family: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: #fff; color: var(--text); width: 100%;
+}
+.field .hint { font-size: 11px; color: var(--text-secondary); line-height: 1.35; }
+.field-inline { display: flex; gap: 8px; }
+.check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.4; }
+.check input { margin-top: 2px; }
+.range-row { display: flex; align-items: center; gap: 10px; }
+.range-row input[type=range] { flex: 1; }
+.range-val { font-variant-numeric: tabular-nums; font-size: 13px; min-width: 42px; text-align: right; }
+
+.progress { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-secondary); margin-top: 14px; }
+.spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error-box { background: var(--error-bg); color: var(--error-text); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 14px; margin-top: 14px; }
+.notice-box { background: var(--notice-bg); color: var(--notice-text); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 13px; line-height: 1.5; margin-top: 14px; }
+.notice-box ul { margin: 6px 0 0; padding-left: 18px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; }
+.tile-label { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.tile-value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.tile-sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,.12); flex: none; }
+.bar { height: 5px; border-radius: 3px; background: #eee; margin-top: 8px; overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 3px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; font-variant-numeric: normal; }
+th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }
+.table-wrap { overflow-x: auto; }
+
+.page-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.page-title { font-size: 17px; font-weight: 600; }
+.page-meta { font-size: 13px; color: var(--text-secondary); }
+.page-body { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 720px) { .page-body { grid-template-columns: 1fr; } }
+.preview canvas { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; background: #fff; display: block; }
+.seps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.sep-item { text-align: center; font-size: 10px; color: var(--text-secondary); }
+.sep-item canvas { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 4px; display: block; }
+
+.footer { text-align: center; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.hidden { display: none !important; }
+code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header class="header">
+    <h1>Расчёт запечатки</h1>
+    <p class="subtitle">Процент покрытия красками CMYK и Pantone относительно площади листа / монтажной области. PDF и AI, полностью локально в браузере.</p>
+  </header>
+
+  <section class="card">
+    <div id="dropzone" class="dropzone">
+      <input type="file" id="fileInput" accept=".pdf,.ai,application/pdf" hidden>
+      <p class="dropzone-text">Перетащите PDF или AI‑файл сюда</p>
+      <p class="dropzone-subtext">или</p>
+      <button type="button" id="browseBtn" class="btn btn-secondary">Выбрать файл</button>
+    </div>
+    <div id="fileInfo" class="page-meta hidden" style="margin-top:12px"></div>
+    <div id="progress" class="progress hidden"><div class="spinner"></div><span id="progressText">Обработка…</span></div>
+    <div id="errorBox" class="error-box hidden"></div>
+  </section>
+
+  <section class="card" id="settingsCard">
+    <h2>Параметры расчёта</h2>
+    <div class="settings">
+
+      <div class="field">
+        <label for="dpiSel">Разрешение анализа</label>
+        <select id="dpiSel">
+          <option value="72">72 dpi — черновик</option>
+          <option value="150" selected>150 dpi — обычно достаточно</option>
+          <option value="200">200 dpi</option>
+          <option value="300">300 dpi — точнее, медленнее</option>
+        </select>
+        <span class="hint">Влияет на точность тонких линий и растра. Требует повторного растрирования.</span>
+      </div>
+
+      <div class="field">
+        <label for="baseSel">База для 100 %</label>
+        <select id="baseSel">
+          <option value="page" selected>Страница / артборд файла</option>
+          <option value="custom">Свой формат листа</option>
+          <option value="bbox">Габарит запечатанной области</option>
+        </select>
+        <div id="customSize" class="field-inline hidden">
+          <input type="number" id="sheetW" value="700" min="1" step="0.1" title="Ширина, мм">
+          <input type="number" id="sheetH" value="1000" min="1" step="0.1" title="Высота, мм">
+        </div>
+        <span class="hint">Проценты считаются как площадь краски ÷ площадь базы.</span>
+      </div>
+
+      <div class="field">
+        <label for="gcrRange">Чёрная генерация (GCR)</label>
+        <div class="range-row">
+          <input type="range" id="gcrRange" min="0" max="100" value="100" step="5">
+          <span class="range-val" id="gcrVal">100 %</span>
+        </div>
+        <span class="hint">100 % — серые и чёрные считаются как чистый K (минимум суммарной краски). 0 % — чёрный строится из CMY.</span>
+      </div>
+
+      <div class="field">
+        <label for="tacLimit">Лимит суммы красок (TAC)</label>
+        <input type="number" id="tacLimit" value="300" min="100" max="400" step="10">
+        <span class="hint">Для отчёта «доля площади с превышением».</span>
+      </div>
+
+      <div class="field">
+        <label for="inkWeight">Расход краски, г/м² при 100 %</label>
+        <input type="number" id="inkWeight" value="1.3" min="0" step="0.1">
+        <span class="hint">Офсет обычно 1,0–1,5 г/м². Для флексо/шелкографии задайте своё.</span>
+      </div>
+
+      <div class="field">
+        <label for="copies">Тираж, листов</label>
+        <input type="number" id="copies" value="1000" min="1" step="1">
+        <span class="hint">Для пересчёта расхода краски на тираж.</span>
+      </div>
+
+      <div class="field">
+        <label>Pantone / плашечные</label>
+        <label class="check"><input type="checkbox" id="spotToggle" checked>
+          <span>Выделять плашечные краски в отдельные каналы (по описанию Separation в файле)</span></label>
+      </div>
+
+      <div class="field">
+        <label for="whiteTh">Порог «есть краска», %</label>
+        <input type="number" id="whiteTh" value="3" min="0" max="20" step="0.5">
+        <span class="hint">Точка меньше этой на печати всё равно не держится. Влияет только на «площадь с краской» и на долю чистой бумаги, но не на сам процент покрытия.</span>
+      </div>
+
+    </div>
+    <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap">
+      <button type="button" id="recalcBtn" class="btn btn-primary" disabled>Пересчитать</button>
+      <button type="button" id="csvBtn" class="btn btn-secondary" disabled>Скачать CSV</button>
+    </div>
+    <div id="noticeBox" class="notice-box hidden"></div>
+  </section>
+
+  <section id="results" class="hidden" style="display:flex; flex-direction:column; gap:24px"></section>
+
+  <footer class="footer">
+    <p>Файл никуда не отправляется — весь разбор идёт в браузере.<br>
+    Расчёт оценочный: значения восстанавливаются из растра страницы, см. раздел «Точность» в отчёте.</p>
+  </footer>
+
+</div>
+
+<script>
+'use strict';
+
+/* =========================================================================
+   Загрузка pdf.js: сначала локальная копия рядом (lib/), затем CDN.
+   ========================================================================= */
+const PDFJS_LOCAL = 'lib/pdf.min.js';
+const PDFJS_LOCAL_WORKER = 'lib/pdf.worker.min.js';
+const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const PDFJS_CDN_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve(src);
+    s.onerror = () => reject(new Error('not loaded: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+const pdfjsReady = (async () => {
+  try {
+    await loadScript(PDFJS_LOCAL);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_LOCAL_WORKER;
+  } catch (e) {
+    await loadScript(PDFJS_CDN);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_CDN_WORKER;
+  }
+})();
+
+/* =========================================================================
+   Цветовая модель.
+
+   pdf.js растрирует страницу в RGB, конвертируя DeviceCMYK своим полиномом
+   (src/core/colorspace.js, DeviceCmykCS#toRgb). Чтобы получить обратно
+   значения красок, мы обращаем ИМЕННО ЭТОТ полином численно, а не считаем
+   наивное K = 1 - max(R,G,B): наивная формула для чистого циана даёт
+   «100C + 24M + 5K» вместо «100C».
+   ========================================================================= */
+
+// val = 255 + c*(P0*c + P1*m + P2*y + P3*k + P4)
+//           + m*(P5*m + P6*y + P7*k + P8)
+//           + y*(P9*y + P10*k + P11)
+//           + k*(P12*k + P13)
+const CMYK_POLY = [
+  // R
+  [-4.387332384609988, 54.48615194189176, 18.82290502165302, 212.25662451639585, -285.2331026137004,
+    1.7149763477362134, -5.6096736904047315, -17.873870861415444, -5.497006427196366,
+   -2.5217340131683033, -21.248923337353073, 17.5119270841813,
+   -21.86122147463605, -189.48180835922747],
+  // G
+  [8.841041422036149, 60.118027045597366, 6.871425592049007, 31.159100130055922, -79.2970844816548,
+   -15.310361306967817, 17.575251261109482, 131.35250912493976, -190.9453302588951,
+    4.444339102852739, 9.8632861493405, -24.86741582555878,
+   -20.737325471181034, -187.80453709719578],
+  // B
+  [0.8842522430003296, 8.078677503112928, 30.89978309703729, -0.23883238689178934, -14.183576799673286,
+   10.49593273432072, 63.02378494754052, 50.606957656360734, -112.23884253719248,
+   0.03296041114873217, 115.60384449646641, -193.58209356861505,
+   -22.33816807309886, -180.12613974708367],
+];
+
+function cmykChannel(ch, c, m, y, k) {
+  const P = CMYK_POLY[ch];
+  return 255
+    + c * (P[0] * c + P[1] * m + P[2] * y + P[3] * k + P[4])
+    + m * (P[5] * m + P[6] * y + P[7] * k + P[8])
+    + y * (P[9] * y + P[10] * k + P[11])
+    + k * (P[12] * k + P[13]);
+}
+
+/** CMYK (0..1) -> RGB (0..255, с обрезкой), как это делает pdf.js. */
+function cmykToRgb(c, m, y, k) {
+  return [
+    clamp255(cmykChannel(0, c, m, y, k)),
+    clamp255(cmykChannel(1, c, m, y, k)),
+    clamp255(cmykChannel(2, c, m, y, k)),
+  ];
+}
+
+function clamp255(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+/* Растр обрезан по 0..255, и это надо учитывать в двух разных смыслах.
+   Если модель уходит за границу, а цель лежит на самой границе — ограничение
+   уже выполнено, канал выключается из невязки и якобиана (иначе чистый циан,
+   у которого красный уходит в −35 и обрезается, читается как «95C + 3M»).
+   Если же цель внутри диапазона, невязка берётся по НЕобрезанному значению,
+   иначе в глубоких тенях градиент становится плоским и решатель встаёт. */
+function channelResidual(ch, c, m, y, k, target) {
+  const raw = cmykChannel(ch, c, m, y, k);
+  if ((raw < 0 && target[ch] <= 0.5) || (raw > 255 && target[ch] >= 254.5)) return null;
+  return target[ch] - raw;
+}
+
+function residualNorm(c, m, y, k, target) {
+  let s = 0;
+  for (let ch = 0; ch < 3; ch++) {
+    const r = channelResidual(ch, c, m, y, k, target);
+    if (r !== null) s += r * r;
+  }
+  return Math.sqrt(s);
+}
+
+// Слабый штраф за лишнюю краску: только чтобы разрешать полные ничьи в
+// «плоских» зонах (глубокие тени, где растр почти не меняется).
+const INK_PENALTY = 0.05;
+
+/**
+ * Подбор C/M/Y при фиксированном K: демпфированный метод наименьших квадратов
+ * (Левенберга–Марквардта) по аналитическому якобиану полинома pdf.js.
+ * Возвращает [c, m, y, невязка].
+ */
+function solveCmyAt(k, target, seed, lock) {
+  const d = Math.max(1 - k, 0.05);
+  let c, m, y;
+  if (seed) {
+    c = seed[0]; m = seed[1]; y = seed[2];
+  } else {
+    c = clamp01((1 - target[0] / 255 - k) / d);
+    m = clamp01((1 - target[1] / 255 - k) / d);
+    y = clamp01((1 - target[2] / 255 - k) / d);
+  }
+  if (lock === 0) c = 0; else if (lock === 1) m = 0; else if (lock === 2) y = 0;
+  let err = residualNorm(c, m, y, k, target);
+
+  const res = [0, 0, 0];
+  for (let iter = 0; iter < 14 && err > 0.2; iter++) {
+    const J = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let ch = 0; ch < 3; ch++) {
+      const P = CMYK_POLY[ch];
+      const r = channelResidual(ch, c, m, y, k, target);
+      res[ch] = r === null ? 0 : r;
+      if (r === null) continue;
+      J[ch][0] = 2 * P[0] * c + P[1] * m + P[2] * y + P[3] * k + P[4];
+      J[ch][1] = P[1] * c + 2 * P[5] * m + P[6] * y + P[7] * k + P[8];
+      J[ch][2] = P[2] * c + P[6] * m + 2 * P[9] * y + P[10] * k + P[11];
+      if (lock !== undefined && lock >= 0) J[ch][lock] = 0;
+    }
+
+    // Нормальные уравнения (JᵀJ + λI)Δ = Jᵀr — устойчивы, когда часть каналов
+    // выключена и система вырождена.
+    const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const rhs = [0, 0, 0];
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        let s = 0;
+        for (let ch = 0; ch < 3; ch++) s += J[ch][i] * J[ch][j];
+        A[i][j] = s;
+      }
+      let s = 0;
+      for (let ch = 0; ch < 3; ch++) s += J[ch][i] * res[ch];
+      rhs[i] = s;
+    }
+    const cur = [c, m, y];
+    const lambda = Math.max(A[0][0], A[1][1], A[2][2]) * 1e-4 + 1e-3;
+    for (let i = 0; i < 3; i++) {
+      A[i][i] += lambda + INK_PENALTY;
+      rhs[i] -= INK_PENALTY * cur[i];
+    }
+
+    const step = solve3(A, rhs);
+    if (!step) break;
+    if (lock !== undefined && lock >= 0) step[lock] = 0;
+
+    let scale = 1;
+    const maxStep = Math.max(Math.abs(step[0]), Math.abs(step[1]), Math.abs(step[2]));
+    if (maxStep > 0.4) scale = 0.4 / maxStep;
+
+    let improved = false;
+    for (let t = 0; t < 5; t++) {
+      const nc = clamp01(c + step[0] * scale);
+      const nm = clamp01(m + step[1] * scale);
+      const ny = clamp01(y + step[2] * scale);
+      const nErr = residualNorm(nc, nm, ny, k, target);
+      // Шаг принимается, если невязка не выросла, а краски стало меньше.
+      if (nErr < err || (nErr < err + 0.05 && nc + nm + ny < c + m + y - 1e-4)) {
+        c = nc; m = nm; y = ny; err = nErr; improved = true; break;
+      }
+      scale *= 0.4;
+    }
+    if (!improved) break;
+  }
+  return [c, m, y, err];
+}
+
+/**
+ * RGB -> CMYK.
+ *
+ * Чёрный неоднозначен: один и тот же цвет можно получить и без K, и с K.
+ * Поэтому сначала находим максимум K по нейтральной оси — наращиваем K ровно
+ * на серую составляющую min(C,M,Y), пока она не исчерпается (так работает GCR
+ * в реальном разделении цветов), и только потом берём заданную долю gcr от
+ * этого максимума. Важно: K не берётся там, где цвет насыщенный, — иначе
+ * чистый циан читался бы как «87C + 7K».
+ * gcr: 0..1. Возвращает [c, m, y, k] в 0..1.
+ */
+function rgbToCmyk(r, g, b, gcr) {
+  if (r >= 254.5 && g >= 254.5 && b >= 254.5) return [0, 0, 0, 0];
+  const target = [r, g, b];
+
+  let k = 0;
+  let sol = solveCmyAt(0, target);
+  const err0 = sol[3];
+  const tol = err0 + 0.75; // допуск: цвет вне охвата CMYK изначально даёт невязку
+
+  for (let i = 0; i < 8; i++) {
+    const gray = Math.min(sol[0], sol[1], sol[2]);
+    if (gray < 0.004) break;
+    const trial = clamp01(k + gray);
+    if (trial - k < 0.004) break;
+    // Решаем без подсказки от предыдущего шага: в углу «много краски» полином
+    // pdf.js немонотонен (там добавление мадженты повышает красный), и старт
+    // из этого угла уводит решатель не туда.
+    const s = solveCmyAt(trial, target);
+    if (s[3] <= tol) { k = trial; sol = s; continue; }
+    // Перелёт: делим отрезок между последним рабочим K и неудачным.
+    let lo = k, hi = trial;
+    for (let j = 0; j < 4; j++) {
+      const mid = (lo + hi) / 2;
+      const sm = solveCmyAt(mid, target);
+      if (sm[3] <= tol) { lo = mid; k = mid; sol = sm; } else { hi = mid; }
+    }
+    break;
+  }
+
+  const kUse = k * gcr;
+  if (Math.abs(kUse - k) > 1e-4) sol = solveCmyAt(kUse, target);
+
+  // Обрезка «паразитных» примесей. Там, где растр обрезан по 0/255, одному и
+  // тому же цвету отвечает целое семейство решений, и метод наименьших
+  // квадратов легко выдаёт вместо плашки 100C смесь «89C + 5M». Если краску с
+  // малым процентом можно убрать без ухудшения совпадения — убираем.
+  for (let i = 0; i < 3; i++) {
+    if (sol[i] < 1e-3 || sol[i] > 0.12) continue;
+    const s = solveCmyAt(kUse, target, sol, i);
+    if (s[3] <= sol[3] + 0.3) sol = s;
+  }
+  return [sol[0], sol[1], sol[2], kUse];
+}
+
+function solve3(A, rhs) {
+  const det =
+      A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
+    - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
+    + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+  if (!isFinite(det) || Math.abs(det) < 1e-9) return null;
+  const col = (i, v) => {
+    const M = [A[0].slice(), A[1].slice(), A[2].slice()];
+    M[0][i] = v[0]; M[1][i] = v[1]; M[2][i] = v[2];
+    return M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1])
+         - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0])
+         + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+  };
+  return [col(0, rhs) / det, col(1, rhs) / det, col(2, rhs) / det];
+}
+
+/* =========================================================================
+   Разбор плашечных красок (Separation / DeviceN) прямо из байтов файла.
+   pdf.js в операторах отдаёт уже готовый RGB, имена красок там теряются,
+   поэтому имена и тоновые кривые достаём из структуры PDF сами.
+   ========================================================================= */
+
+async function inflate(bytes) {
+  for (const fmt of ['deflate', 'deflate-raw']) {
+    try {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(fmt));
+      const buf = await new Response(stream).arrayBuffer();
+      return new Uint8Array(buf);
+    } catch (e) { /* пробуем следующий формат */ }
+  }
+  return null;
+}
+
+function decodeName(name) {
+  return name.replace(/#([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
+/** Индекс объектов: номер -> текст тела объекта (включая объекты внутри ObjStm). */
+async function buildObjectIndex(bytes) {
+  const raw = new TextDecoder('latin1').decode(bytes);
+  const texts = [raw];
+  const index = new Map();
+
+  const objRe = /(\d+)\s+\d+\s+obj\b/g;
+  let mt;
+  while ((mt = objRe.exec(raw)) !== null) {
+    const start = objRe.lastIndex;
+    const end = raw.indexOf('endobj', start);
+    index.set(mt[1], raw.slice(start, end === -1 ? Math.min(start + 4096, raw.length) : end));
+  }
+
+  // Объекты внутри сжатых object streams — там же лежат описания красок.
+  const objStmRe = /\/Type\s*\/ObjStm/g;
+  let sm, inflatedCount = 0;
+  while ((sm = objStmRe.exec(raw)) !== null && inflatedCount < 400) {
+    const streamKw = raw.indexOf('stream', sm.index);
+    if (streamKw === -1) continue;
+    const dictStart = Math.max(0, raw.lastIndexOf(' obj', sm.index));
+    const dict = raw.slice(dictStart, streamKw);
+    let dataStart = streamKw + 6;
+    if (raw[dataStart] === '\r') dataStart++;
+    if (raw[dataStart] === '\n') dataStart++;
+    const dataEnd = raw.indexOf('endstream', dataStart);
+    if (dataEnd === -1) continue;
+
+    const out = await inflate(bytes.subarray(dataStart, dataEnd));
+    if (!out) continue;
+    inflatedCount++;
+    const text = new TextDecoder('latin1').decode(out);
+    texts.push(text);
+
+    const firstM = dict.match(/\/First\s+(\d+)/);
+    const nM = dict.match(/\/N\s+(\d+)/);
+    if (!firstM || !nM) continue;
+    const first = +firstM[1];
+    const pairs = text.slice(0, first).trim().split(/\s+/).map(Number);
+    for (let i = 0; i < +nM[1]; i++) {
+      const num = pairs[i * 2], off = pairs[i * 2 + 1];
+      if (num === undefined || off === undefined) continue;
+      const nextOff = pairs[i * 2 + 3];
+      const from = first + off;
+      const to = nextOff !== undefined ? first + nextOff : text.length;
+      if (!index.has(String(num))) index.set(String(num), text.slice(from, to));
+    }
+  }
+  return { index, texts };
+}
+
+/** Разбор функции тонового перехода: поддерживается FunctionType 2 (C0/C1/N). */
+function parseTintFunction(src) {
+  if (!src || !/\/FunctionType\s*2/.test(src)) return null;
+  const nums = (re) => {
+    const m = src.match(re);
+    if (!m) return null;
+    return m[1].trim().split(/\s+/).map(Number).filter((v) => !isNaN(v));
+  };
+  const c0 = nums(/\/C0\s*\[([^\]]*)\]/) || [0];
+  const c1 = nums(/\/C1\s*\[([^\]]*)\]/) || [1];
+  const nM = src.match(/\/N\s+([\d.]+)/);
+  return { c0, c1, n: nM ? +nM[1] : 1 };
+}
+
+/** Компоненты альтернативного пространства -> RGB. */
+function altToRgb(alt, comps) {
+  if (alt === 'cmyk' || comps.length === 4) return cmykToRgb(comps[0], comps[1], comps[2], comps[3]);
+  if (comps.length === 3) return [comps[0] * 255, comps[1] * 255, comps[2] * 255];
+  if (comps.length === 1) return [comps[0] * 255, comps[0] * 255, comps[0] * 255];
+  return null;
+}
+
+/** Находит все Separation-краски: имя + тоновая шкала (101 точка RGB). */
+async function findSpotColors(bytes) {
+  const spots = new Map();
+  const deviceNNames = new Set();
+  let objData;
+  try {
+    objData = await buildObjectIndex(bytes);
+  } catch (e) {
+    return { spots: [], deviceN: [], failed: true };
+  }
+  const { index, texts } = objData;
+
+  for (const text of texts) {
+    // /Separation /Name /AlternateSpace  <fn dict | N 0 R>
+    const re = /\/Separation\s*\/([^\s\/\[\]<>(){}%]+)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const rawName = m[1];
+      const name = decodeName(rawName);
+      if (/^All$/i.test(name)) continue;
+
+      const tail = text.slice(re.lastIndex, re.lastIndex + 600);
+      let alt = 'unknown';
+      if (/^\s*\/DeviceCMYK/.test(tail)) alt = 'cmyk';
+      else if (/^\s*\/DeviceRGB/.test(tail)) alt = 'rgb';
+      else if (/^\s*\/DeviceGray/.test(tail)) alt = 'gray';
+      else if (/^\s*(\[|\d+\s+\d+\s+R)/.test(tail)) alt = 'icc';
+
+      let fnSrc = null;
+      const refM = tail.match(/(\d+)\s+\d+\s+R\s*\]/);
+      const dictM = tail.match(/<<([\s\S]{0,400}?)>>/);
+      if (dictM && /\/FunctionType/.test(dictM[1])) fnSrc = dictM[1];
+      else if (refM && index.has(refM[1])) fnSrc = index.get(refM[1]);
+
+      const fn = parseTintFunction(fnSrc);
+      const prev = spots.get(name);
+      if (prev && (prev.ramp || !fn)) continue;
+
+      let ramp = null, solidCmyk = null;
+      if (fn) {
+        const comps = Math.max(fn.c0.length, fn.c1.length);
+        ramp = new Float32Array(101 * 3);
+        for (let i = 0; i <= 100; i++) {
+          const t = Math.pow(i / 100, fn.n);
+          const out = [];
+          for (let j = 0; j < comps; j++) {
+            const a = fn.c0[j] !== undefined ? fn.c0[j] : 0;
+            const b = fn.c1[j] !== undefined ? fn.c1[j] : 0;
+            out.push(a + t * (b - a));
+          }
+          const rgb = altToRgb(alt, out);
+          if (!rgb) { ramp = null; break; }
+          ramp[i * 3] = rgb[0]; ramp[i * 3 + 1] = rgb[1]; ramp[i * 3 + 2] = rgb[2];
+        }
+        if ((alt === 'cmyk' || fn.c1.length === 4)) solidCmyk = fn.c1.slice(0, 4);
+      }
+      spots.set(name, { name, alt, ramp, solidCmyk });
+    }
+
+    // DeviceN — имена перечислены массивом; тон по такой краске не считаем.
+    const dn = /\/DeviceN\s*\[([^\]]{0,400})\]/g;
+    let d;
+    while ((d = dn.exec(text)) !== null) {
+      const names = d[1].match(/\/([^\s\/\[\]<>(){}%]+)/g) || [];
+      names.forEach((n) => {
+        const clean = decodeName(n.slice(1));
+        if (!/^(All|None)$/i.test(clean)) deviceNNames.add(clean);
+      });
+    }
+  }
+  return { spots: [...spots.values()], deviceN: [...deviceNNames], failed: false };
+}
+
+/* =========================================================================
+   Растрирование и сбор гистограммы
+   ========================================================================= */
+
+const MAX_PIXELS = 40e6;       // потолок на страницу
+const BUCKET_BITS = 6;         // 64^3 корзин: цвета группируются по ~4 уровня
+const BUCKETS = 1 << (BUCKET_BITS * 3);
+const PT_TO_MM = 25.4 / 72;
+const PREVIEW_PX = 220;
+
+/** Растрирует страницу и собирает гистограмму цветов (без привязки к настройкам цвета). */
+async function scanPage(page, dpi) {
+  const baseVp = page.getViewport({ scale: 1 });
+  let scale = dpi / 72;
+  if (baseVp.width * baseVp.height * scale * scale > MAX_PIXELS) {
+    scale = Math.sqrt(MAX_PIXELS / (baseVp.width * baseVp.height));
+  }
+  const vp = page.getViewport({ scale });
+  const w = Math.max(1, Math.round(vp.width));
+  const h = Math.max(1, Math.round(vp.height));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+
+  // pdf.js продолжает отрисовку через requestAnimationFrame, а он не срабатывает
+  // в фоновой вкладке — на время растрирования подменяем его на таймер, иначе
+  // разбор многостраничного файла зависает, стоит переключиться на другое окно.
+  const realRaf = window.requestAnimationFrame;
+  window.requestAnimationFrame = (cb) => window.setTimeout(() => cb(performance.now()), 0);
+  try {
+    await page.render({ canvasContext: ctx, viewport: vp, background: '#ffffff' }).promise;
+  } finally {
+    window.requestAnimationFrame = realRaf;
+  }
+
+  const img = ctx.getImageData(0, 0, w, h).data;
+
+  const counts = new Uint32Array(BUCKETS);
+  const sumR = new Float64Array(BUCKETS);
+  const sumG = new Float64Array(BUCKETS);
+  const sumB = new Float64Array(BUCKETS);
+  const shift = 8 - BUCKET_BITS;
+
+  // Габарит «непустой» области — для базы «по запечатанной области».
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+
+  for (let yPix = 0, p = 0; yPix < h; yPix++) {
+    for (let xPix = 0; xPix < w; xPix++, p += 4) {
+      const r = img[p], g = img[p + 1], b = img[p + 2];
+      const idx = ((r >> shift) << (BUCKET_BITS * 2)) | ((g >> shift) << BUCKET_BITS) | (b >> shift);
+      counts[idx]++;
+      sumR[idx] += r; sumG[idx] += g; sumB[idx] += b;
+      if (r < 250 || g < 250 || b < 250) {
+        if (xPix < minX) minX = xPix;
+        if (xPix > maxX) maxX = xPix;
+        if (yPix < minY) minY = yPix;
+        if (yPix > maxY) maxY = yPix;
+      }
+    }
+  }
+
+  // Компактное представление: только занятые корзины.
+  const used = [];
+  for (let i = 0; i < BUCKETS; i++) if (counts[i]) used.push(i);
+  const n = used.length;
+  const bCount = new Float64Array(n);
+  const bR = new Float64Array(n);
+  const bG = new Float64Array(n);
+  const bB = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const idx = used[i];
+    bCount[i] = counts[idx];
+    bR[i] = sumR[idx] / counts[idx];
+    bG[i] = sumG[idx] / counts[idx];
+    bB[i] = sumB[idx] / counts[idx];
+  }
+
+  // Превью — с того же растра, чтобы не рендерить второй раз.
+  const pw = Math.max(1, Math.round(w >= h ? PREVIEW_PX : PREVIEW_PX * w / h));
+  const ph = Math.max(1, Math.round(w >= h ? PREVIEW_PX * h / w : PREVIEW_PX));
+  const pc = document.createElement('canvas');
+  pc.width = pw; pc.height = ph;
+  const pctx = pc.getContext('2d');
+  pctx.fillStyle = '#fff'; pctx.fillRect(0, 0, pw, ph);
+  pctx.drawImage(canvas, 0, 0, pw, ph);
+  const previewData = pctx.getImageData(0, 0, pw, ph);
+
+  canvas.width = canvas.height = 0; // отпускаем память
+
+  const pxMm = (baseVp.width * PT_TO_MM) / w;
+  return {
+    widthPx: w, heightPx: h,
+    widthMm: baseVp.width * PT_TO_MM,
+    heightMm: baseVp.height * PT_TO_MM,
+    pxAreaMm2: pxMm * pxMm,
+    totalPixels: w * h,
+    bCount, bR, bG, bB,
+    bboxMm: maxX < 0 ? null : {
+      wMm: (maxX - minX + 1) * pxMm,
+      hMm: (maxY - minY + 1) * pxMm,
+    },
+    previewData,
+  };
+}
+
+/* =========================================================================
+   Пересчёт статистики по гистограмме (быстрый — без растрирования)
+   ========================================================================= */
+
+const CHANNEL_META = [
+  { key: 'c', label: 'Cyan',    css: 'var(--ink-c)' },
+  { key: 'm', label: 'Magenta', css: 'var(--ink-m)' },
+  { key: 'y', label: 'Yellow',  css: 'var(--ink-y)' },
+  { key: 'k', label: 'Black',   css: 'var(--ink-k)' },
+];
+
+function matchSpot(r, g, b, spots) {
+  let best = null, bestDist = 7.0; // допуск в единицах RGB — плашки заливаются ровным цветом
+  for (const s of spots) {
+    if (!s.ramp) continue;
+    for (let i = 0; i <= 100; i++) {
+      const dr = r - s.ramp[i * 3], dg = g - s.ramp[i * 3 + 1], db = b - s.ramp[i * 3 + 2];
+      const d = Math.sqrt(dr * dr + dg * dg + db * db);
+      if (d < bestDist) { bestDist = d; best = { spot: s, tint: i / 100 }; }
+    }
+  }
+  return best;
+}
+
+function computeStats(scan, settings, spots) {
+  const { bCount, bR, bG, bB } = scan;
+  const n = bCount.length;
+  const gcr = settings.gcr;
+  const useSpots = settings.useSpots && spots.some((s) => s.ramp);
+  const inkTh = settings.whiteThreshold; // доля (0..1) суммарной краски
+
+  const sums = [0, 0, 0, 0];       // Σ (доля краски × пикселей)
+  const areaPixels = [0, 0, 0, 0]; // пикселей, где краска присутствует
+  const spotSums = new Map();      // имя -> { sum, pixels }
+  let printedPixels = 0, tacSum = 0, tacMax = 0, overLimitPixels = 0;
+  const colorRows = [];
+
+  const tacLimit = settings.tacLimit / 100;
+
+  for (let i = 0; i < n; i++) {
+    const cnt = bCount[i], r = bR[i], g = bG[i], b = bB[i];
+    let cmyk = null, spotHit = null;
+
+    if (useSpots) spotHit = matchSpot(r, g, b, spots);
+
+    if (spotHit && spotHit.tint > 0) {
+      const rec = spotSums.get(spotHit.spot.name) || { sum: 0, pixels: 0, spot: spotHit.spot };
+      rec.sum += spotHit.tint * cnt;
+      if (spotHit.tint >= inkTh) rec.pixels += cnt;
+      spotSums.set(spotHit.spot.name, rec);
+      if (spotHit.tint >= inkTh) { printedPixels += cnt; tacSum += spotHit.tint * cnt; }
+      if (spotHit.tint > tacMax) tacMax = spotHit.tint;
+      colorRows.push({ cnt, r, g, b, cmyk: null, spot: spotHit.spot.name, tint: spotHit.tint });
+      continue;
+    }
+    if (spotHit && spotHit.tint === 0) {
+      colorRows.push({ cnt, r, g, b, cmyk: [0, 0, 0, 0], spot: null, tint: 0 });
+      continue;
+    }
+
+    cmyk = rgbToCmyk(r, g, b, gcr);
+    const tac = cmyk[0] + cmyk[1] + cmyk[2] + cmyk[3];
+    for (let ch = 0; ch < 4; ch++) {
+      sums[ch] += cmyk[ch] * cnt;
+      if (cmyk[ch] >= inkTh) areaPixels[ch] += cnt;
+    }
+    if (tac >= inkTh) printedPixels += cnt;
+    tacSum += tac * cnt;
+    if (tac > tacMax) tacMax = tac;
+    if (tac > tacLimit) overLimitPixels += cnt;
+    colorRows.push({ cnt, r, g, b, cmyk, spot: null, tint: 0 });
+  }
+
+  // База для 100 %.
+  let baseAreaMm2, baseLabel;
+  if (settings.base === 'custom') {
+    baseAreaMm2 = settings.sheetW * settings.sheetH;
+    baseLabel = `лист ${fmt(settings.sheetW, 1)}×${fmt(settings.sheetH, 1)} мм`;
+  } else if (settings.base === 'bbox' && scan.bboxMm) {
+    baseAreaMm2 = scan.bboxMm.wMm * scan.bboxMm.hMm;
+    baseLabel = `габарит запечатки ${fmt(scan.bboxMm.wMm, 1)}×${fmt(scan.bboxMm.hMm, 1)} мм`;
+  } else {
+    baseAreaMm2 = scan.widthMm * scan.heightMm;
+    baseLabel = `страница ${fmt(scan.widthMm, 1)}×${fmt(scan.heightMm, 1)} мм`;
+  }
+
+  const px2mm = scan.pxAreaMm2;
+  const toPercent = (pixelSum) => baseAreaMm2 > 0 ? (pixelSum * px2mm / baseAreaMm2) * 100 : 0;
+
+  const channels = CHANNEL_META.map((meta, ch) => ({
+    ...meta,
+    coverage: toPercent(sums[ch]),               // средний % покрытия (для расхода краски)
+    areaPercent: toPercent(areaPixels[ch]),      // доля площади, где краска вообще есть
+    inkAreaM2: sums[ch] * px2mm / 1e6,
+  }));
+
+  const spotChannels = [...spotSums.values()].map((rec) => ({
+    key: 'spot',
+    label: rec.spot.name,
+    css: rampCss(rec.spot),
+    coverage: toPercent(rec.sum),
+    areaPercent: toPercent(rec.pixels),
+    inkAreaM2: rec.sum * px2mm / 1e6,
+    solidCmyk: rec.spot.solidCmyk,
+  })).sort((a, b) => b.coverage - a.coverage);
+
+  colorRows.sort((a, b) => b.cnt - a.cnt);
+  colorRows.forEach((row) => { row.pct = toPercent(row.cnt); });
+
+  return {
+    baseAreaMm2, baseLabel,
+    channels, spotChannels,
+    totalCoverage: channels.reduce((s, c) => s + c.coverage, 0) + spotChannels.reduce((s, c) => s + c.coverage, 0),
+    printedPercent: toPercent(printedPixels),
+    blankPercent: Math.max(0, 100 - toPercent(printedPixels)),
+    avgTac: toPercent(tacSum),
+    maxTac: tacMax * 100,
+    overLimitPercent: toPercent(overLimitPixels),
+    topColors: colorRows.slice(0, 12),
+    baseAreaM2: baseAreaMm2 / 1e6,
+  };
+}
+
+function rampCss(spot) {
+  if (spot.ramp) {
+    return `rgb(${Math.round(spot.ramp[300])},${Math.round(spot.ramp[301])},${Math.round(spot.ramp[302])})`;
+  }
+  return '#bbb';
+}
+
+/* =========================================================================
+   UI
+   ========================================================================= */
+
+const el = (id) => document.getElementById(id);
+const dropzone = el('dropzone'), fileInput = el('fileInput'), browseBtn = el('browseBtn');
+const fileInfo = el('fileInfo'), progressEl = el('progress'), progressText = el('progressText');
+const errorBox = el('errorBox'), noticeBox = el('noticeBox'), resultsEl = el('results');
+const recalcBtn = el('recalcBtn'), csvBtn = el('csvBtn');
+
+const state = { fileName: '', scans: [], spots: [], deviceN: [], dpi: 150, stats: [] };
+
+function readSettings() {
+  return {
+    dpi: +el('dpiSel').value,
+    gcr: +el('gcrRange').value / 100,
+    base: el('baseSel').value,
+    sheetW: +el('sheetW').value,
+    sheetH: +el('sheetH').value,
+    tacLimit: +el('tacLimit').value,
+    inkWeight: +el('inkWeight').value,
+    copies: +el('copies').value,
+    useSpots: el('spotToggle').checked,
+    whiteThreshold: +el('whiteTh').value / 100,
+  };
+}
+
+el('gcrRange').addEventListener('input', () => { el('gcrVal').textContent = el('gcrRange').value + ' %'; });
+el('baseSel').addEventListener('change', () => {
+  el('customSize').classList.toggle('hidden', el('baseSel').value !== 'custom');
+});
+
+browseBtn.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('click', (e) => { if (e.target !== browseBtn) fileInput.click(); });
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+
+['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => {
+  e.preventDefault(); dropzone.classList.add('dragover');
+}));
+['dragleave', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => {
+  e.preventDefault();
+  if (ev === 'drop' || e.target === document.documentElement) dropzone.classList.remove('dragover');
+}));
+document.addEventListener('drop', (e) => {
+  const f = e.dataTransfer && e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+
+recalcBtn.addEventListener('click', async () => {
+  const s = readSettings();
+  if (s.dpi !== state.dpi && state.file) { await handleFile(state.file); return; }
+  renderResults();
+});
+csvBtn.addEventListener('click', exportCsv);
+
+function showProgress(t) { progressText.textContent = t; progressEl.classList.remove('hidden'); }
+function hideProgress() { progressEl.classList.add('hidden'); }
+function showError(t) { errorBox.textContent = t; errorBox.classList.remove('hidden'); }
+function clearError() { errorBox.classList.add('hidden'); }
+
+async function handleFile(file) {
+  clearError();
+  resultsEl.classList.add('hidden');
+  recalcBtn.disabled = csvBtn.disabled = true;
+  state.file = file;
+  state.fileName = file.name;
+
+  showProgress('Загрузка pdf.js…');
+  try { await pdfjsReady; } catch (e) {
+    hideProgress();
+    showError('Не удалось загрузить pdf.js. Положите pdf.min.js и pdf.worker.min.js в папку lib/ рядом с этим файлом.');
+    return;
+  }
+
+  let buffer;
+  try { buffer = new Uint8Array(await file.arrayBuffer()); } catch (e) {
+    hideProgress(); showError('Не удалось прочитать файл с диска.'); return;
+  }
+
+  showProgress('Поиск плашечных красок в структуре файла…');
+  let spotInfo = { spots: [], deviceN: [], failed: true };
+  try { spotInfo = await findSpotColors(buffer); } catch (e) { console.warn('spot scan failed', e); }
+  state.spots = spotInfo.spots;
+  state.deviceN = spotInfo.deviceN;
+  state.spotScanFailed = spotInfo.failed;
+
+  let pdfDoc;
+  try {
+    showProgress('Открытие документа…');
+    pdfDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+  } catch (e) {
+    hideProgress();
+    console.error(e);
+    showError('Не удалось открыть файл. Для AI‑файла нужна опция «PDF‑совместимый файл» при сохранении. ' +
+              'Если открываете страницу через file:// и видите ошибку воркера — запустите локальный сервер.');
+    return;
+  }
+
+  const settings = readSettings();
+  state.dpi = settings.dpi;
+  state.scans = [];
+
+  try {
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      showProgress(`Растрирование страницы ${i} из ${pdfDoc.numPages} при ${settings.dpi} dpi…`);
+      await new Promise((r) => setTimeout(r, 0));
+      const page = await pdfDoc.getPage(i);
+      state.scans.push(await scanPage(page, settings.dpi));
+      page.cleanup();
+    }
+  } catch (e) {
+    hideProgress(); console.error(e);
+    showError('Ошибка при растрировании страницы: ' + e.message);
+    return;
+  }
+
+  fileInfo.textContent = `${file.name} · ${formatSize(file.size)} · страниц: ${pdfDoc.numPages}`;
+  fileInfo.classList.remove('hidden');
+  hideProgress();
+  recalcBtn.disabled = csvBtn.disabled = false;
+  renderResults();
+}
+
+function renderResults() {
+  const settings = readSettings();
+  state.stats = state.scans.map((scan) => computeStats(scan, settings, state.spots));
+  resultsEl.innerHTML = '';
+  resultsEl.classList.remove('hidden');
+
+  renderNotices(settings);
+  if (state.stats.length > 1) resultsEl.appendChild(buildTotalCard(settings));
+  state.stats.forEach((stats, i) => resultsEl.appendChild(buildPageCard(i, stats, settings)));
+  resultsEl.appendChild(buildAccuracyCard(settings));
+}
+
+function renderNotices(settings) {
+  const items = [];
+  const withRamp = state.spots.filter((s) => s.ramp);
+  const noRamp = state.spots.filter((s) => !s.ramp);
+
+  if (state.spots.length) {
+    items.push(`Плашечные краски (Separation) в файле: <b>${state.spots.map((s) => escapeHtml(s.name)).join(', ')}</b>.`);
+    if (withRamp.length && settings.useSpots) {
+      items.push(`Для ${withRamp.length} из них удалось прочитать тоновую кривую — их площадь считается отдельным каналом и исключена из CMYK.`);
+    }
+    if (noRamp.length) {
+      items.push(`Не удалось разобрать тоновую кривую для: ${noRamp.map((s) => escapeHtml(s.name)).join(', ')} — эти краски попадут в CMYK как цветовой эквивалент.`);
+    }
+    if (!settings.useSpots) items.push('Разделение плашек выключено — они учтены как CMYK‑эквивалент.');
+  }
+  if (state.deviceN.length) {
+    items.push(`Составные краски DeviceN: ${state.deviceN.map(escapeHtml).join(', ')} — их тон отдельно не рассчитывается.`);
+  }
+  if (!state.spots.length && !state.deviceN.length) {
+    items.push(state.spotScanFailed
+      ? 'Не удалось разобрать структуру файла на предмет плашечных красок — всё посчитано как CMYK. Если в макете есть Pantone, проверьте результат вручную.'
+      : 'Плашечных красок (Separation/DeviceN) в файле не найдено — работа считается как чистый CMYK.');
+  }
+
+  noticeBox.innerHTML = '<b>Краски в файле</b><ul><li>' + items.join('</li><li>') + '</li></ul>';
+  noticeBox.classList.remove('hidden');
+}
+
+function buildTotalCard(settings) {
+  const card = document.createElement('section');
+  card.className = 'card';
+  const pages = state.stats.length;
+  const totalBaseM2 = state.stats.reduce((s, st) => s + st.baseAreaM2, 0);
+
+  // Средневзвешенное по площади покрытие.
+  const agg = new Map();
+  for (const st of state.stats) {
+    for (const ch of [...st.channels, ...st.spotChannels]) {
+      const cur = agg.get(ch.label) || { label: ch.label, css: ch.css, inkAreaM2: 0 };
+      cur.inkAreaM2 += ch.inkAreaM2;
+      agg.set(ch.label, cur);
+    }
+  }
+  const rows = [...agg.values()].map((a) => ({
+    ...a,
+    coverage: totalBaseM2 > 0 ? a.inkAreaM2 / totalBaseM2 * 100 : 0,
+    grams: a.inkAreaM2 * settings.inkWeight,
+  }));
+
+  card.innerHTML = `<h2>Итого по документу (${pages} стр.)</h2>` +
+    `<div class="page-meta" style="margin-bottom:14px">Суммарная площадь базы: ${fmt(totalBaseM2, 4)} м² на 1 экземпляр</div>` +
+    channelTiles(rows) +
+    inkTable(rows, settings, totalBaseM2);
+  return card;
+}
+
+function buildPageCard(i, stats, settings) {
+  const scan = state.scans[i];
+  const card = document.createElement('section');
+  card.className = 'card';
+
+  const head = document.createElement('div');
+  head.className = 'page-head';
+  head.innerHTML = `<div class="page-title">Страница ${i + 1}</div>` +
+    `<div class="page-meta">${escapeHtml(stats.baseLabel)} · ${fmt(stats.baseAreaM2, 4)} м² · растр ${scan.widthPx}×${scan.heightPx} px</div>`;
+  card.appendChild(head);
+
+  const body = document.createElement('div');
+  body.className = 'page-body';
+
+  const left = document.createElement('div');
+  left.className = 'preview';
+  const pc = document.createElement('canvas');
+  pc.width = scan.previewData.width; pc.height = scan.previewData.height;
+  pc.getContext('2d').putImageData(scan.previewData, 0, 0);
+  left.appendChild(pc);
+  left.appendChild(buildSeparationPreviews(scan, settings));
+  body.appendChild(left);
+
+  const right = document.createElement('div');
+  const all = [...stats.channels, ...stats.spotChannels].map((ch) => ({
+    ...ch, grams: ch.inkAreaM2 * settings.inkWeight,
+  }));
+  right.innerHTML =
+    channelTiles(all) +
+    `<div class="tiles" style="margin-top:12px">
+      <div class="tile"><div class="tile-label">Суммарное покрытие</div>
+        <div class="tile-value">${fmt(stats.totalCoverage, 1)} %</div>
+        <div class="tile-sub">сумма всех красок</div></div>
+      <div class="tile"><div class="tile-label">Запечатанная площадь</div>
+        <div class="tile-value">${fmt(stats.printedPercent, 1)} %</div>
+        <div class="tile-sub">чистой бумаги ${fmt(stats.blankPercent, 1)} %</div></div>
+      <div class="tile"><div class="tile-label">Максимум TAC</div>
+        <div class="tile-value">${fmt(stats.maxTac, 0)} %</div>
+        <div class="tile-sub">выше ${settings.tacLimit} %: ${fmt(stats.overLimitPercent, 2)} % площади</div></div>
+    </div>` +
+    inkTable(all, settings, stats.baseAreaM2) +
+    topColorsTable(stats);
+  body.appendChild(right);
+
+  card.appendChild(body);
+  return card;
+}
+
+function channelTiles(rows) {
+  return '<div class="tiles">' + rows.map((ch) => `
+    <div class="tile">
+      <div class="tile-label"><span class="swatch" style="background:${ch.css}"></span>${escapeHtml(ch.label)}</div>
+      <div class="tile-value">${fmt(ch.coverage, 1)} %</div>
+      ${ch.areaPercent !== undefined ? `<div class="tile-sub">площадь с краской ${fmt(ch.areaPercent, 1)} %</div>` : ''}
+      <div class="bar"><i style="width:${Math.min(100, ch.coverage)}%;background:${ch.css}"></i></div>
+    </div>`).join('') + '</div>';
+}
+
+function inkTable(rows, settings, baseAreaM2) {
+  const body = rows.map((ch) => {
+    const grams = ch.inkAreaM2 * settings.inkWeight;
+    return `<tr>
+      <td><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${ch.css}"></span> ${escapeHtml(ch.label)}</td>
+      <td>${fmt(ch.coverage, 2)}</td>
+      <td>${fmt(ch.inkAreaM2, 4)}</td>
+      <td>${fmt(grams, 3)}</td>
+      <td>${fmt(grams * settings.copies / 1000, 3)}</td>
+    </tr>`;
+  }).join('');
+  return `<h3>Расход краски</h3><div class="table-wrap"><table>
+    <thead><tr><th>Краска</th><th>Покрытие, %</th><th>Приведённая площадь, м²</th><th>На 1 лист, г</th><th>На тираж ${settings.copies}, кг</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+}
+
+function topColorsTable(stats) {
+  const rows = stats.topColors.map((r) => {
+    const pct = r.pct;
+    const css = `rgb(${Math.round(r.r)},${Math.round(r.g)},${Math.round(r.b)})`;
+    const desc = r.spot
+      ? `${escapeHtml(r.spot)} · ${fmt(r.tint * 100, 0)} %`
+      : (r.cmyk ? `C ${fmt(r.cmyk[0] * 100, 0)} · M ${fmt(r.cmyk[1] * 100, 0)} · Y ${fmt(r.cmyk[2] * 100, 0)} · K ${fmt(r.cmyk[3] * 100, 0)}` : '—');
+    return `<tr>
+      <td><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${css}"></span> ${desc}</td>
+      <td>${fmt(pct, 2)}</td>
+    </tr>`;
+  }).join('');
+  return `<h3>Основные цвета по площади</h3><div class="table-wrap"><table>
+    <thead><tr><th>Цвет</th><th>% площади базы</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function buildSeparationPreviews(scan, settings) {
+  const wrap = document.createElement('div');
+  wrap.className = 'seps';
+  const src = scan.previewData;
+  const w = src.width, h = src.height;
+
+  const canvases = CHANNEL_META.map((meta) => {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    return { meta, canvas: c, img: c.getContext('2d').createImageData(w, h) };
+  });
+
+  // Для миниатюр хватает огрублённой палитры — иначе на фото пришлось бы
+  // обращать полином для каждого уникального цвета превью.
+  const cache = new Map();
+  for (let p = 0; p < w * h; p++) {
+    const r = src.data[p * 4] & 0xf8, g = src.data[p * 4 + 1] & 0xf8, b = src.data[p * 4 + 2] & 0xf8;
+    const key = (r << 16) | (g << 8) | b;
+    let cmyk = cache.get(key);
+    if (!cmyk) { cmyk = rgbToCmyk(r, g, b, settings.gcr); cache.set(key, cmyk); }
+    for (let ch = 0; ch < 4; ch++) {
+      const v = 255 - Math.round(cmyk[ch] * 255);
+      const d = canvases[ch].img.data;
+      d[p * 4] = v; d[p * 4 + 1] = v; d[p * 4 + 2] = v; d[p * 4 + 3] = 255;
+    }
+  }
+  canvases.forEach(({ meta, canvas, img }) => {
+    canvas.getContext('2d').putImageData(img, 0, 0);
+    const item = document.createElement('div');
+    item.className = 'sep-item';
+    item.appendChild(canvas);
+    const cap = document.createElement('div');
+    cap.textContent = meta.label;
+    item.appendChild(cap);
+    wrap.appendChild(item);
+  });
+  return wrap;
+}
+
+function buildAccuracyCard(settings) {
+  const card = document.createElement('section');
+  card.className = 'card';
+  card.innerHTML = `<h2>Точность и как это считается</h2>
+  <div style="font-size:13px; line-height:1.6; color:var(--text-secondary)">
+    <p><b>Метод.</b> Страница растрируется через pdf.js при ${settings.dpi} dpi на белом фоне. pdf.js отдаёт растр
+    в RGB, поэтому значения красок восстанавливаются обратным преобразованием: используется тот же полином
+    DeviceCMYK→RGB, что и внутри pdf.js, и он обращается численно (метод Ньютона по C/M/Y при фиксированном K).
+    Наивная формула <code>K = 1 − max(R,G,B)</code> здесь не применяется — она даёт для чистого циана «100C + 24M + 5K».</p>
+    <p><b>Покрытие, %</b> — это средняя доля краски по площади базы: сумма тонов всех пикселей, делённая на площадь базы.
+    Именно это число нужно для расчёта расхода краски. «Площадь с краской» — доля площади, где краска вообще присутствует.</p>
+    <p><b>Что учитывается точно:</b> плашки и заливки, растровые изображения, прозрачность и наложения после
+    сведения — всё, что видно на оттиске. Плашечные краски с читаемой тоновой кривой считаются отдельными каналами.</p>
+    <p><b>Ограничения:</b></p>
+    <ul>
+      <li>Разделение чёрного и CMY (GCR) в файле однозначно не восстановимо — сейчас ${Math.round(settings.gcr * 100)} %.
+        Для файлов с богатым чёрным поставьте GCR ниже.</li>
+      <li>Overprint (наложение) считается по видимому результату: pdf.js применяет наложение не всегда так,
+        как RIP печатной машины.</li>
+      <li>Очень тёмные и внегамутные цвета обрезаются по 0/255 при растрировании — часть информации теряется.</li>
+      <li>Белая краска и лаки на белом фоне не видны и не считаются.</li>
+      <li>Тонкие линии при низком dpi усредняются — для штриховых работ берите 300 dpi.</li>
+    </ul>
+    <p>Эталон для сверки — <code>gs -o - -sDEVICE=inkcov file.pdf</code> (Ghostscript) или tiffsep для плашек.
+    На типовых работах расхождение обычно в пределах нескольких процентов.</p>
+  </div>`;
+  return card;
+}
+
+/* ---------- CSV ---------- */
+function exportCsv() {
+  const settings = readSettings();
+  const lines = [['Файл', state.fileName].join(';')];
+  lines.push(['Страница', 'Краска', 'Покрытие %', 'Площадь базы м2', 'Приведённая площадь м2', 'Краски на лист г', 'На тираж кг'].join(';'));
+  state.stats.forEach((st, i) => {
+    [...st.channels, ...st.spotChannels].forEach((ch) => {
+      const grams = ch.inkAreaM2 * settings.inkWeight;
+      lines.push([
+        i + 1, ch.label,
+        num(ch.coverage, 2), num(st.baseAreaM2, 4), num(ch.inkAreaM2, 4),
+        num(grams, 3), num(grams * settings.copies / 1000, 3),
+      ].join(';'));
+    });
+    lines.push([i + 1, 'Запечатанная площадь', num(st.printedPercent, 2), '', '', '', ''].join(';'));
+    lines.push([i + 1, 'Максимум TAC', num(st.maxTac, 0), '', '', '', ''].join(';'));
+  });
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (state.fileName.replace(/\.[^.]+$/, '') || 'ink-coverage') + '_запечатка.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------- утилиты ---------- */
+function fmt(v, digits) {
+  if (!isFinite(v)) return '—';
+  return v.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+function num(v, digits) { return isFinite(v) ? v.toFixed(digits).replace('.', ',') : ''; }
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' Б';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' КБ';
+  return (bytes / 1024 / 1024).toFixed(1) + ' МБ';
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+</script>
+</body>
+</html>

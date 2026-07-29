@@ -28,7 +28,18 @@
       "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_spot.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
       "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_layer_test.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
       "PowerShell(Copy-Item -LiteralPath \"C:\\\\Users\\\\Adar\\\\Desktop\\\\70�50�120 ��.pdf\" -Destination \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_nolayer.pdf\")",
-      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_nolayer.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)"
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_nolayer.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "Bash(grep -o \"255+[^;]\\\\{200,900\\\\}\" lib/pdf.min.js)",
+      "Bash(grep -o \"4\\\\.387332384609988.\\\\{0,120\\\\}\" lib/pdf.min.js)",
+      "Bash(grep -o \"4\\\\.387332384609988.\\\\{0,700\\\\}\" lib/pdf.worker.min.js)",
+      "Bash(grep -o \"r\\\\[n+2\\\\]=255+i\\\\*\\(\\\\.8842522430003296.\\\\{0,400\\\\}\" lib/pdf.worker.min.js)",
+      "Bash(node make-test-pdf.js test-ink.pdf)",
+      "Bash(node serve.js)",
+      "Bash(node make-test-pdf2.js test-grad.pdf)",
+      "Bash(node -e ' *)",
+      "Bash(taskkill //F //FI \"WINDOWTITLE eq node*\" //IM node.exe)",
+      "PowerShell($p = Get-NetTCPConnection -LocalPort 8123 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess; if \\($p\\) { Stop-Process -Id $p -Force; \"killed $p\" } else { \"none\" })",
+      "Read(//c/Users/Adar/Desktop/**)"
     ]
   }
 }
