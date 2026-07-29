@@ -38,15 +38,69 @@ const PAPER_SIZES_MM = [
   ['Tabloid', 279.4, 431.8],
 ];
 
+// Typical names print shops give the technical cut/crease layer, as opposed
+// to the design/artwork layer — checked as whole-word matches (not bare
+// substrings) so a layer literally named e.g. "Cutouts" or "Discount" isn't
+// mistaken for a dieline layer.
+const DIE_LAYER_KEYWORDS = [
+  'крой', 'штанц', 'вырубка', 'нож', 'биговка',
+  'kroj', 'sht', 'shanc', 'vyrubka', 'nozh',
+  'dieline', 'die line', 'die-line', 'die cut', 'die-cut',
+  'score', 'crease', 'knife', 'cut',
+];
+
+function isWordChar(ch) {
+  return !!ch && /[\p{L}\p{N}]/u.test(ch);
+}
+
+function layerNameMatchesDieline(name) {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return DIE_LAYER_KEYWORDS.some((kw) => {
+    const idx = lower.indexOf(kw);
+    if (idx === -1) return false;
+    const before = idx > 0 ? lower[idx - 1] : '';
+    const after = idx + kw.length < lower.length ? lower[idx + kw.length] : '';
+    return !isWordChar(before) && !isWordChar(after);
+  });
+}
+
+// Looks at the document's OCG (layer) structure and decides how to isolate
+// the dieline layer's geometry from any design/artwork layers:
+//  - 'none'   — no layers in the document at all; nothing to isolate, the
+//               whole file is scanned (today's behaviour).
+//  - 'auto'   — exactly one layer name matched a known dieline keyword.
+//  - 'manual' — layers exist but none matched; the caller must ask the user.
+async function resolveDieLayer(pdfDoc) {
+  let ocConfig = null;
+  try {
+    ocConfig = await pdfDoc.getOptionalContentConfig();
+  } catch (err) {
+    console.warn('OCG lookup failed, proceeding without layer filtering:', err);
+  }
+  const groups = ocConfig ? ocConfig.getGroups() : null;
+  const list = groups ? Object.entries(groups).map(([id, g]) => ({ id, name: g.name || '' })) : [];
+
+  if (list.length === 0) {
+    return { status: 'none', ocgId: null, layerName: null, groups: [] };
+  }
+  const match = list.find((g) => layerNameMatchesDieline(g.name));
+  if (match) {
+    return { status: 'auto', ocgId: match.id, layerName: match.name, groups: list };
+  }
+  return { status: 'needs-manual', ocgId: null, layerName: null, groups: list };
+}
+
 /* ---------- DOM references ---------- */
 
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const browseBtn = document.getElementById('browseBtn');
-const resetBtn = document.getElementById('resetBtn');
 const fileInfo = document.getElementById('fileInfo');
-const fileNameEl = document.getElementById('fileName');
 const fileMetaEl = document.getElementById('fileMeta');
+const layerPickerEl = document.getElementById('layerPicker');
+const layerSelectEl = document.getElementById('layerSelect');
+const layerConfirmBtnEl = document.getElementById('layerConfirmBtn');
 const progressEl = document.getElementById('progress');
 const progressTextEl = document.getElementById('progressText');
 const errorBox = document.getElementById('errorBox');
@@ -54,9 +108,13 @@ const noticeBox = document.getElementById('noticeBox');
 const resultsSection = document.getElementById('resultsSection');
 const pagesBreakdownEl = document.getElementById('pagesBreakdown');
 
-let lastResult = null; // { fileName, pages: [{index, red, green, otherCount}], totalRed, totalGreen }
+let lastResult = null; // { fileName, pages: [{index, red, green, otherCount}], totalRed, totalGreen, detection }
 
 /* ---------- File input wiring ---------- */
+
+function updateBrowseBtnLabel() {
+  browseBtn.textContent = lastResult ? 'Заменить файл' : 'Выбрать файл';
+}
 
 browseBtn.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('click', (e) => {
@@ -70,35 +128,36 @@ fileInput.addEventListener('change', () => {
   }
 });
 
+// The droppable area covers the whole page (not just the small dropzone
+// box) so a file can be dropped anywhere — except on top of an existing
+// result block, where a drop would just be confusing next to the price
+// input/buttons there. The small dropzone box stays as the only visual
+// highlight while dragging, so the rest of the page stays visually calm.
+function isOverResultBlock(target) {
+  return !!(target && target.closest && target.closest('.page-report-card'));
+}
+
 ['dragenter', 'dragover'].forEach((evt) => {
-  dropzone.addEventListener(evt, (e) => {
+  document.addEventListener(evt, (e) => {
     e.preventDefault();
-    e.stopPropagation();
-    dropzone.classList.add('dragover');
+    dropzone.classList.toggle('dragover', !isOverResultBlock(e.target));
   });
 });
 
-['dragleave', 'drop'].forEach((evt) => {
-  dropzone.addEventListener(evt, (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+document.addEventListener('dragleave', (e) => {
+  if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
     dropzone.classList.remove('dragover');
-  });
+  }
 });
 
-dropzone.addEventListener('drop', (e) => {
+document.addEventListener('dragend', () => dropzone.classList.remove('dragover'));
+
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (isOverResultBlock(e.target)) return;
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (file) handleFile(file);
-});
-
-resetBtn.addEventListener('click', () => {
-  fileInput.value = '';
-  fileInfo.classList.add('hidden');
-  resultsSection.classList.add('hidden');
-  pagesBreakdownEl.innerHTML = '';
-  hideError();
-  hideNotice();
-  lastResult = null;
 });
 
 /* ---------- Error / notice helpers ---------- */
@@ -129,10 +188,41 @@ function hideProgress() {
 
 /* ---------- Main file handling flow ---------- */
 
+// Shows the layer picker and resolves once the user confirms a choice.
+// Picking the explicit "whole file" option resolves ocgId to null.
+function promptLayerChoice(groups) {
+  return new Promise((resolve) => {
+    layerSelectEl.innerHTML = '';
+    groups.forEach((g) => {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.name || `(без имени, id ${g.id})`;
+      layerSelectEl.appendChild(opt);
+    });
+    const allOpt = document.createElement('option');
+    allOpt.value = '';
+    allOpt.textContent = 'Весь файл (без фильтра по слоям)';
+    layerSelectEl.appendChild(allOpt);
+
+    layerPickerEl.classList.remove('hidden');
+
+    function onConfirm() {
+      layerConfirmBtnEl.removeEventListener('click', onConfirm);
+      layerPickerEl.classList.add('hidden');
+      const chosenId = layerSelectEl.value || null;
+      const chosenGroup = groups.find((g) => g.id === chosenId);
+      resolve({ ocgId: chosenId, layerName: chosenGroup ? chosenGroup.name : null });
+    }
+    layerConfirmBtnEl.addEventListener('click', onConfirm);
+  });
+}
+
 async function handleFile(file) {
   hideError();
   hideNotice();
   resultsSection.classList.add('hidden');
+  pagesBreakdownEl.innerHTML = '';
+  layerPickerEl.classList.add('hidden');
   lastResult = null;
 
   const name = file.name || 'файл';
@@ -142,7 +232,6 @@ async function handleFile(file) {
     return;
   }
 
-  fileNameEl.textContent = name;
   fileMetaEl.textContent = formatFileSize(file.size);
   fileInfo.classList.remove('hidden');
 
@@ -176,6 +265,21 @@ async function handleFile(file) {
   const pageCount = pdfDoc.numPages;
   fileMetaEl.textContent = `${formatFileSize(file.size)} · страниц: ${pageCount}`;
 
+  showProgress('Проверка слоёв документа…');
+  let layerInfo = await resolveDieLayer(pdfDoc);
+
+  if (layerInfo.status === 'needs-manual') {
+    hideProgress();
+    const choice = await promptLayerChoice(layerInfo.groups);
+    showProgress('Обработка файла…');
+    layerInfo = {
+      status: choice.ocgId ? 'manual' : 'none',
+      ocgId: choice.ocgId,
+      layerName: choice.layerName,
+      groups: layerInfo.groups,
+    };
+  }
+
   const pages = [];
   let totalRed = 0;
   let totalGreen = 0;
@@ -189,7 +293,7 @@ async function handleFile(file) {
 
       const page = await pdfDoc.getPage(i);
       const opList = await page.getOperatorList();
-      const pageResult = analyzeOperatorList(opList);
+      const pageResult = analyzeOperatorList(opList, layerInfo.ocgId);
 
       // viewport at scale 1 already bakes in the page's own /Rotate, so its
       // width/height and transform match what a viewer would show on screen —
@@ -253,10 +357,19 @@ async function handleFile(file) {
     totalRed,
     totalGreen,
     totalOther,
+    detection: layerInfo,
   };
 
+  updateBrowseBtnLabel();
   renderResults();
   resultsSection.classList.remove('hidden');
+}
+
+function formatDetectionLabel(detection) {
+  if (!detection) return null;
+  if (detection.status === 'auto') return `Слой «${detection.layerName}» (определено автоматически)`;
+  if (detection.status === 'manual') return `Слой «${detection.layerName}» (выбрано вручную)`;
+  return null;
 }
 
 function detectPaperFormat(wmm, hmm) {
@@ -295,13 +408,22 @@ function formatFileSize(bytes) {
    OPS.constructPath entry: args = [subOpCodes, flatCoordsArray]. Everything
    else (color, save/restore/transform, paint ops) stays one entry per op. */
 
-function analyzeOperatorList(opList) {
+function analyzeOperatorList(opList, targetOcgId) {
   const OPS = pdfjsLib.OPS;
   const fnArray = opList.fnArray;
   const argsArray = opList.argsArray;
 
   let ctm = IDENTITY_MATRIX;
   const ctmStack = [];
+
+  // When a specific dieline layer was identified, only geometry marked as
+  // belonging to that OCG (optional content group) counts — everything
+  // else (design/artwork content on other layers) is skipped entirely, not
+  // just excluded from red/green but not even shown as "other".
+  const ocStack = [];
+  function insideTargetLayer() {
+    return !targetOcgId || ocStack.includes(targetOcgId);
+  }
 
   let strokeCMYK = null;
   let strokeColorSpaceName = null;
@@ -434,6 +556,10 @@ function analyzeOperatorList(opList) {
 
   function paintCurrentPath() {
     if (!pendingSubpaths.length) return;
+    if (!insideTargetLayer()) {
+      pendingSubpaths = [];
+      return;
+    }
     const color = classifyColor(strokeCMYK);
     if (!color) {
       for (const sp of pendingSubpaths) {
@@ -481,6 +607,18 @@ function analyzeOperatorList(opList) {
 
       case OPS.transform:
         ctm = matMul(a, ctm);
+        break;
+
+      case OPS.beginMarkedContentProps:
+        ocStack.push(a[0] === 'OC' && a[1] && a[1].id ? a[1].id : null);
+        break;
+
+      case OPS.beginMarkedContent:
+        ocStack.push(null);
+        break;
+
+      case OPS.endMarkedContent:
+        ocStack.pop();
         break;
 
       case OPS.constructPath:
@@ -816,6 +954,14 @@ function buildPageReportBlock(page, totalPages) {
   title.className = 'results-file-title';
   title.textContent = displayTitle;
   card.appendChild(title);
+
+  const detectionLabel = formatDetectionLabel(lastResult.detection);
+  if (detectionLabel) {
+    const detectionEl = document.createElement('p');
+    detectionEl.className = 'detection-label';
+    detectionEl.textContent = detectionLabel;
+    card.appendChild(detectionEl);
+  }
 
   const priceRow = document.createElement('div');
   priceRow.className = 'price-row';
@@ -1171,6 +1317,7 @@ function generatePageReportCanvas(page, price, displayTitle) {
   const totalRed = page.red;
   const totalAll = totalGreen + totalRed;
   const totalCost = Math.round(totalAll * price);
+  const detectionLabel = formatDetectionLabel(lastResult && lastResult.detection);
 
   // Export at a fixed high pixel density regardless of the display's own
   // devicePixelRatio, so the PNG stays crisp on standard (non-Retina) screens too.
@@ -1204,6 +1351,12 @@ function generatePageReportCanvas(page, price, displayTitle) {
   const titleY = y + 20;
   y += 36;
 
+  let detectionY = null;
+  if (detectionLabel) {
+    detectionY = y - 6;
+    y += 16;
+  }
+
   const priceLineY = y + 15;
   y += 34;
 
@@ -1236,6 +1389,12 @@ function generatePageReportCanvas(page, price, displayTitle) {
   ctx.fillStyle = '#1d1d1f';
   ctx.font = `600 20px ${REPORT_FONT}`;
   ctx.fillText(displayTitle, pad, titleY);
+
+  if (detectionLabel) {
+    ctx.fillStyle = '#8a8a8f';
+    ctx.font = `400 12px ${REPORT_FONT}`;
+    ctx.fillText(detectionLabel, pad, detectionY);
+  }
 
   ctx.fillStyle = '#1d1d1f';
   ctx.font = `500 14px ${REPORT_FONT}`;

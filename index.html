@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Калькулятор длины ножей штанцформы</title>
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 
@@ -33,12 +33,14 @@
       </div>
 
       <div id="fileInfo" class="file-info hidden">
-        <div class="file-info-row">
-          <div class="file-meta">
-            <span id="fileName" class="file-name">—</span>
-            <span id="fileMeta" class="file-meta-text">—</span>
-          </div>
-          <button type="button" id="resetBtn" class="btn btn-text">Заменить файл</button>
+        <span id="fileMeta" class="file-meta-text">—</span>
+      </div>
+
+      <div id="layerPicker" class="layer-picker hidden">
+        <p class="layer-picker-text">Не удалось автоматически найти слой с кроем. Выберите его вручную:</p>
+        <div class="layer-picker-row">
+          <select id="layerSelect" class="layer-select"></select>
+          <button type="button" id="layerConfirmBtn" class="btn btn-primary">Продолжить</button>
         </div>
       </div>
 
@@ -64,6 +66,6 @@
 </div>
 
 <script src="lib/pdf.min.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

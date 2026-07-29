@@ -22,7 +22,13 @@
       "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_kul2_tmp.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
       "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_mak2_tmp.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
       "PowerShell(Copy-Item -LiteralPath \"C:\\\\Users\\\\Adar\\\\Desktop\\\\70�50�120 ��.pdf\" -Destination \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_final_check.pdf\")",
-      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_final_check.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)"
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_final_check.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "PowerShell(Copy-Item -LiteralPath \"C:\\\\Users\\\\Adar\\\\Desktop\\\\APN-007 obl.pdf\" -Destination \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_layer_test.pdf\")",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\Adar\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\G--Claude-code-shtanzform-calculator\\\\756b2633-16ee-4acc-a917-62e0f766d067\\\\scratchpad\\\\test_spot.pdf\" \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_spot.pdf\")",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_spot.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_layer_test.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "PowerShell(Copy-Item -LiteralPath \"C:\\\\Users\\\\Adar\\\\Desktop\\\\70�50�120 ��.pdf\" -Destination \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_nolayer.pdf\")",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_nolayer.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)"
     ]
   }
 }

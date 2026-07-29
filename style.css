@@ -84,11 +84,11 @@ body {
 .dropzone {
   border: 1.5px dashed #c7c7cc;
   border-radius: var(--radius-md);
-  padding: 48px 24px;
+  padding: 22px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.15s ease;
@@ -107,11 +107,15 @@ body {
 
 .dropzone-icon {
   color: var(--text-secondary);
-  margin-bottom: 4px;
+}
+
+.dropzone-icon svg {
+  width: 28px;
+  height: 28px;
 }
 
 .dropzone-text {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 500;
   margin: 0;
   color: var(--text);
@@ -180,36 +184,57 @@ body {
 /* File info */
 
 .file-info {
-  margin-top: 20px;
-  padding-top: 20px;
+  margin-top: 14px;
+  padding-top: 14px;
   border-top: 1px solid var(--border);
-}
-
-.file-info-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.file-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.file-name {
-  font-size: 15px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: center;
 }
 
 .file-meta-text {
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* Layer picker */
+
+.layer-picker {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.layer-picker-text {
+  font-size: 14px;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.layer-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.layer-select {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 14px;
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+/* Detection label */
+
+.detection-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+  text-align: center;
 }
 
 /* Progress */
@@ -273,6 +298,10 @@ body {
   word-break: break-word;
 }
 
+.results-file-title:has(+ .detection-label) {
+  margin-bottom: 2px;
+}
+
 .price-row {
   display: flex;
   align-items: center;
@@ -333,10 +362,10 @@ body {
 .summary-tile {
   background: var(--bg);
   border-radius: var(--radius-md);
-  padding: 20px 18px;
+  padding: 13px 18px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .summary-label {
@@ -360,7 +389,7 @@ body {
 .dot-green { background: var(--green); }
 
 .summary-value {
-  font-size: 28px;
+  font-size: 23px;
   font-weight: 300;
   letter-spacing: -0.01em;
   color: var(--text);
