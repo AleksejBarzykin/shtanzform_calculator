@@ -109,6 +109,55 @@ th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-trans
 .sep-item { text-align: center; font-size: 10px; color: var(--text-secondary); }
 .sep-item canvas { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 4px; display: block; }
 
+/* Раскрывающийся блок */
+.collapse { margin-top: 22px; border-top: 1px solid var(--border); }
+.collapse > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; gap: 9px;
+  padding: 14px 0 6px; font-size: 15px; font-weight: 600; user-select: none;
+}
+.collapse > summary::-webkit-details-marker { display: none; }
+.collapse > summary::before {
+  content: ''; width: 7px; height: 7px; flex: none; margin-left: 2px;
+  border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary);
+  transform: rotate(-45deg); transition: transform .2s ease;
+}
+.collapse[open] > summary::before { transform: rotate(45deg); }
+.collapse > summary:hover::before { border-color: var(--accent); }
+.collapse .count { font-weight: 400; color: var(--text-secondary); font-size: 13px; }
+.collapse-body { animation: collapseIn .22s ease; padding-bottom: 4px; }
+@keyframes collapseIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+
+/* Лайтбокс превью */
+.zoomable { cursor: zoom-in; transition: transform .15s ease, box-shadow .15s ease; }
+.zoomable:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.12); }
+.lightbox {
+  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
+  background: rgba(20,20,22,0); transition: background .3s ease; -webkit-backdrop-filter: blur(0px); backdrop-filter: blur(0px);
+}
+.lightbox.open { background: rgba(20,20,22,.82); -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); }
+.lightbox-figure { position: relative; transform-origin: top left; will-change: transform; }
+.lightbox-figure canvas {
+  display: block; background: #fff; border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.55); image-rendering: auto;
+}
+.lightbox-caption {
+  position: absolute; left: 0; right: 0; bottom: -34px; text-align: center;
+  color: rgba(255,255,255,.92); font-size: 13px; opacity: 0; transition: opacity .25s ease .1s;
+}
+.lightbox.open .lightbox-caption { opacity: 1; }
+.lightbox-spinner {
+  position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.9);
+  border-radius: 50%; padding: 7px; display: flex; opacity: 0; transition: opacity .2s ease;
+}
+.lightbox-spinner.busy { opacity: 1; }
+.lightbox-close {
+  position: fixed; top: 16px; right: 20px; width: 38px; height: 38px; border-radius: 50%;
+  border: none; background: rgba(255,255,255,.14); color: #fff; font-size: 22px; line-height: 1;
+  cursor: pointer; opacity: 0; transition: opacity .25s ease, background .15s ease;
+}
+.lightbox.open .lightbox-close { opacity: 1; }
+.lightbox-close:hover { background: rgba(255,255,255,.26); }
+
 .footer { text-align: center; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
 .hidden { display: none !important; }
 code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
@@ -655,6 +704,24 @@ const BUCKETS = 1 << (BUCKET_BITS * 3);
 const PT_TO_MM = 25.4 / 72;
 const PREVIEW_PX = 220;
 
+/**
+ * Растрирование страницы на белом фоне.
+ * pdf.js продолжает отрисовку через requestAnimationFrame, а он не срабатывает
+ * в фоновой вкладке — на время рендера подменяем его на таймер, иначе разбор
+ * многостраничного файла зависает, стоит переключиться на другое окно.
+ */
+async function renderPageTo(page, ctx, viewport) {
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  const realRaf = window.requestAnimationFrame;
+  window.requestAnimationFrame = (cb) => window.setTimeout(() => cb(performance.now()), 0);
+  try {
+    await page.render({ canvasContext: ctx, viewport, background: '#ffffff' }).promise;
+  } finally {
+    window.requestAnimationFrame = realRaf;
+  }
+}
+
 /** Растрирует страницу и собирает гистограмму цветов (без привязки к настройкам цвета). */
 async function scanPage(page, dpi) {
   const baseVp = page.getViewport({ scale: 1 });
@@ -669,19 +736,7 @@ async function scanPage(page, dpi) {
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, w, h);
-
-  // pdf.js продолжает отрисовку через requestAnimationFrame, а он не срабатывает
-  // в фоновой вкладке — на время растрирования подменяем его на таймер, иначе
-  // разбор многостраничного файла зависает, стоит переключиться на другое окно.
-  const realRaf = window.requestAnimationFrame;
-  window.requestAnimationFrame = (cb) => window.setTimeout(() => cb(performance.now()), 0);
-  try {
-    await page.render({ canvasContext: ctx, viewport: vp, background: '#ffffff' }).promise;
-  } finally {
-    window.requestAnimationFrame = realRaf;
-  }
+  await renderPageTo(page, ctx, vp);
 
   const img = ctx.getImageData(0, 0, w, h).data;
 
@@ -872,6 +927,7 @@ function computeStats(scan, settings, spots) {
     maxTac: tacMax * 100,
     overLimitPercent: toPercent(overLimitPixels),
     topColors: colorRows.slice(0, 12),
+    colorCount: n,
     baseAreaM2: baseAreaMm2 / 1e6,
   };
 }
@@ -893,7 +949,7 @@ const fileInfo = el('fileInfo'), progressEl = el('progress'), progressText = el(
 const errorBox = el('errorBox'), noticeBox = el('noticeBox'), resultsEl = el('results');
 const recalcBtn = el('recalcBtn'), csvBtn = el('csvBtn');
 
-const state = { fileName: '', scans: [], spots: [], deviceN: [], dpi: 150, stats: [] };
+const state = { fileName: '', scans: [], spots: [], deviceN: [], dpi: 150, stats: [], pdfDoc: null };
 
 function readSettings() {
   return {
@@ -972,7 +1028,11 @@ async function handleFile(file) {
   let pdfDoc;
   try {
     showProgress('Открытие документа…');
+    // Документ остаётся открытым и после разбора: по клику на превью страница
+    // дорисовывается в высоком разрешении.
+    if (state.pdfDoc) { try { await state.pdfDoc.destroy(); } catch (e2) {} state.pdfDoc = null; }
     pdfDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+    state.pdfDoc = pdfDoc;
   } catch (e) {
     hideProgress();
     console.error(e);
@@ -1091,10 +1151,12 @@ function buildPageCard(i, stats, settings) {
   const left = document.createElement('div');
   left.className = 'preview';
   const pc = document.createElement('canvas');
-  pc.width = scan.previewData.width; pc.height = scan.previewData.height;
-  pc.getContext('2d').putImageData(scan.previewData, 0, 0);
+  pc.className = 'zoomable';
+  pc.title = 'Нажмите, чтобы посмотреть крупно';
+  drawPreviewInto(pc, scan, null, settings);
+  pc.addEventListener('click', () => openLightbox(pc, i, null, `Страница ${i + 1}`));
   left.appendChild(pc);
-  left.appendChild(buildSeparationPreviews(scan, settings));
+  left.appendChild(buildSeparationPreviews(scan, settings, i));
   body.appendChild(left);
 
   const right = document.createElement('div');
@@ -1160,38 +1222,26 @@ function topColorsTable(stats) {
       <td>${fmt(pct, 2)}</td>
     </tr>`;
   }).join('');
-  return `<h3>Основные цвета по площади</h3><div class="table-wrap"><table>
-    <thead><tr><th>Цвет</th><th>% площади базы</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const shown = stats.topColors.length;
+  const total = stats.colorCount;
+  return `<details class="collapse"><summary>Основные цвета по площади
+      <span class="count">${shown} из ${total} ${plural(total, 'оттенка', 'оттенков', 'оттенков')}</span></summary>
+    <div class="collapse-body"><div class="table-wrap"><table>
+      <thead><tr><th>Цвет</th><th>% площади базы</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+    </details>`;
 }
 
-function buildSeparationPreviews(scan, settings) {
+function buildSeparationPreviews(scan, settings, pageIndex) {
   const wrap = document.createElement('div');
   wrap.className = 'seps';
-  const src = scan.previewData;
-  const w = src.width, h = src.height;
+  CHANNEL_META.forEach((meta, ch) => {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'zoomable';
+    canvas.title = `${meta.label} — нажмите, чтобы посмотреть крупно`;
+    drawPreviewInto(canvas, scan, ch, settings);
+    canvas.addEventListener('click', () =>
+      openLightbox(canvas, pageIndex, ch, `Страница ${pageIndex + 1} — сепарация ${meta.label}`));
 
-  const canvases = CHANNEL_META.map((meta) => {
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    return { meta, canvas: c, img: c.getContext('2d').createImageData(w, h) };
-  });
-
-  // Для миниатюр хватает огрублённой палитры — иначе на фото пришлось бы
-  // обращать полином для каждого уникального цвета превью.
-  const cache = new Map();
-  for (let p = 0; p < w * h; p++) {
-    const r = src.data[p * 4] & 0xf8, g = src.data[p * 4 + 1] & 0xf8, b = src.data[p * 4 + 2] & 0xf8;
-    const key = (r << 16) | (g << 8) | b;
-    let cmyk = cache.get(key);
-    if (!cmyk) { cmyk = rgbToCmyk(r, g, b, settings.gcr); cache.set(key, cmyk); }
-    for (let ch = 0; ch < 4; ch++) {
-      const v = 255 - Math.round(cmyk[ch] * 255);
-      const d = canvases[ch].img.data;
-      d[p * 4] = v; d[p * 4 + 1] = v; d[p * 4 + 2] = v; d[p * 4 + 3] = 255;
-    }
-  }
-  canvases.forEach(({ meta, canvas, img }) => {
-    canvas.getContext('2d').putImageData(img, 0, 0);
     const item = document.createElement('div');
     item.className = 'sep-item';
     item.appendChild(canvas);
@@ -1232,6 +1282,174 @@ function buildAccuracyCard(settings) {
   return card;
 }
 
+/* =========================================================================
+   Лайтбокс: превью и сепарации крупно
+   ========================================================================= */
+
+const HIRES_MAX_PX = 2400;      // потолок для композита
+const HIRES_SEP_MAX_PX = 1500;  // для сепараций ниже: каждый пиксель проходит через обращение полинома
+const lb = { el: null, token: 0, source: null };
+
+function ensureLightbox() {
+  if (lb.el) return;
+  const el = document.createElement('div');
+  el.className = 'lightbox hidden';
+  el.innerHTML =
+    '<button type="button" class="lightbox-close" aria-label="Закрыть">&times;</button>' +
+    '<div class="lightbox-figure"><canvas></canvas>' +
+    '<div class="lightbox-spinner"><div class="spinner"></div></div>' +
+    '<div class="lightbox-caption"></div></div>';
+  document.body.appendChild(el);
+  lb.el = el;
+  lb.figure = el.querySelector('.lightbox-figure');
+  lb.canvas = el.querySelector('canvas');
+  lb.caption = el.querySelector('.lightbox-caption');
+  lb.spinner = el.querySelector('.lightbox-spinner');
+  el.addEventListener('click', (e) => {
+    if (e.target === el || e.target.closest('.lightbox-close')) closeLightbox();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && lb.el && !lb.el.classList.contains('hidden')) closeLightbox();
+  });
+}
+
+/**
+ * Открывает превью крупно с разворотом от миниатюры.
+ * channel: null — композит, 0..3 — сепарация CMYK.
+ */
+async function openLightbox(sourceCanvas, pageIndex, channel, title) {
+  ensureLightbox();
+  const scan = state.scans[pageIndex];
+  if (!scan) return;
+
+  const aspect = scan.widthPx / scan.heightPx;
+  let dw = window.innerWidth * 0.9, dh = dw / aspect;
+  const maxH = window.innerHeight * 0.84;
+  if (dh > maxH) { dh = maxH; dw = dh * aspect; }
+
+  const c = lb.canvas;
+  c.style.width = dw + 'px';
+  c.style.height = dh + 'px';
+  // Сразу показываем миниатюру — крупно и мыльно, но без ожидания.
+  drawPreviewInto(c, scan, channel, readSettings());
+  lb.caption.textContent = title;
+  lb.source = sourceCanvas;
+  lb.scrollLock = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+  lb.el.classList.remove('hidden');
+
+  // FLIP: стартуем из прямоугольника миниатюры и разворачиваемся на место.
+  const from = sourceCanvas.getBoundingClientRect();
+  const to = c.getBoundingClientRect();
+  const scale = to.width > 0 ? from.width / to.width : 0.2;
+  lb.figure.style.transition = 'none';
+  lb.figure.style.opacity = '1';
+  lb.figure.style.transform =
+    `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${scale})`;
+  lb.figure.getBoundingClientRect(); // принудительный reflow, иначе анимации не будет
+  lb.el.classList.add('open');
+  lb.figure.style.transition = 'transform .34s cubic-bezier(.22,.68,.32,1)';
+  lb.figure.style.transform = 'none';
+
+  // И параллельно дорисовываем страницу в высоком разрешении.
+  const token = ++lb.token;
+  lb.spinner.classList.add('busy');
+  try {
+    const hi = await renderHiRes(pageIndex, dw, channel);
+    if (token !== lb.token) return;
+    c.width = hi.width; c.height = hi.height;
+    c.getContext('2d').drawImage(hi, 0, 0);
+    hi.width = hi.height = 0;
+  } catch (e) {
+    console.warn('hi-res preview failed', e);
+  } finally {
+    if (token === lb.token) lb.spinner.classList.remove('busy');
+  }
+}
+
+function closeLightbox() {
+  if (!lb.el || lb.el.classList.contains('hidden')) return;
+  lb.token++;
+  lb.spinner.classList.remove('busy');
+  document.body.style.overflow = lb.scrollLock || '';
+  const c = lb.canvas;
+  const to = c.getBoundingClientRect();
+  let from = lb.source ? lb.source.getBoundingClientRect() : null;
+  // Если миниатюра к этому моменту уехала за пределы экрана, схлопываться к ней
+  // некрасиво — тогда просто гасим.
+  if (from && (from.bottom < 0 || from.top > window.innerHeight)) from = null;
+  lb.el.classList.remove('open');
+  if (from && to.width > 0) {
+    lb.figure.style.transition = 'transform .28s cubic-bezier(.4,.0,.7,.6)';
+    lb.figure.style.transform =
+      `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width})`;
+  } else {
+    lb.figure.style.transition = 'opacity .24s ease';
+    lb.figure.style.opacity = '0';
+  }
+  setTimeout(() => {
+    lb.el.classList.add('hidden');
+    lb.figure.style.transition = 'none';
+    lb.figure.style.transform = 'none';
+    lb.figure.style.opacity = '1';
+  }, 300);
+}
+
+/** Растрирует страницу заново под размер показа; channel !== null — сепарация. */
+async function renderHiRes(pageIndex, cssWidth, channel) {
+  if (!state.pdfDoc) throw new Error('документ закрыт');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cap = channel === null ? HIRES_MAX_PX : HIRES_SEP_MAX_PX;
+  const targetPx = Math.max(320, Math.min(cap, Math.round(cssWidth * dpr)));
+
+  const page = await state.pdfDoc.getPage(pageIndex + 1);
+  const vp1 = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: targetPx / vp1.width });
+  const w = Math.max(1, Math.round(vp.width)), h = Math.max(1, Math.round(vp.height));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: channel !== null });
+  await renderPageTo(page, ctx, vp);
+  page.cleanup();
+
+  if (channel !== null) {
+    const img = ctx.getImageData(0, 0, w, h);
+    separationFromImage(img, channel, readSettings().gcr);
+    ctx.putImageData(img, 0, 0);
+  }
+  return canvas;
+}
+
+/** Превращает RGB-растр в градации серого по одной краске (на месте). */
+function separationFromImage(img, channel, gcr) {
+  const d = img.data;
+  const cache = new Map();
+  for (let p = 0; p < d.length; p += 4) {
+    const r = d[p] & 0xf8, g = d[p + 1] & 0xf8, b = d[p + 2] & 0xf8;
+    const key = (r << 16) | (g << 8) | b;
+    let cmyk = cache.get(key);
+    if (!cmyk) { cmyk = rgbToCmyk(r, g, b, gcr); cache.set(key, cmyk); }
+    const v = 255 - Math.round(cmyk[channel] * 255);
+    d[p] = v; d[p + 1] = v; d[p + 2] = v; d[p + 3] = 255;
+  }
+}
+
+/** Рисует в canvas миниатюру страницы (композит или сепарацию) из уже собранного растра. */
+function drawPreviewInto(canvas, scan, channel, settings) {
+  const src = scan.previewData;
+  canvas.width = src.width; canvas.height = src.height;
+  const ctx = canvas.getContext('2d');
+  if (channel === null) {
+    ctx.putImageData(src, 0, 0);
+    return;
+  }
+  const img = ctx.createImageData(src.width, src.height);
+  img.data.set(src.data);
+  separationFromImage(img, channel, settings.gcr);
+  ctx.putImageData(img, 0, 0);
+}
+
 /* ---------- CSV ---------- */
 function exportCsv() {
   const settings = readSettings();
@@ -1263,6 +1481,12 @@ function fmt(v, digits) {
   return v.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 function num(v, digits) { return isFinite(v) ? v.toFixed(digits).replace('.', ',') : ''; }
+function plural(n, one, few, many) {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+}
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' Б';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' КБ';

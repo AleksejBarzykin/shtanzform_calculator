@@ -39,7 +39,8 @@
       "Bash(node -e ' *)",
       "Bash(taskkill //F //FI \"WINDOWTITLE eq node*\" //IM node.exe)",
       "PowerShell($p = Get-NetTCPConnection -LocalPort 8123 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess; if \\($p\\) { Stop-Process -Id $p -Force; \"killed $p\" } else { \"none\" })",
-      "Read(//c/Users/Adar/Desktop/**)"
+      "Read(//c/Users/Adar/Desktop/**)",
+      "Bash(node -e *)"
     ]
   }
 }
