@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Калькулятор длины ножей штанцформы</title>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+
+<div class="page">
+
+  <header class="header">
+    <h1>Калькулятор штанцформы</h1>
+    <p class="subtitle">Расчёт длины ножей и биговки по PDF/AI-макету</p>
+  </header>
+
+  <main class="main">
+
+    <section class="card">
+      <div id="dropzone" class="dropzone">
+        <input type="file" id="fileInput" accept=".pdf,.ai" hidden>
+        <div class="dropzone-icon">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12"></path>
+            <path d="M7 8l5-5 5 5"></path>
+            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+          </svg>
+        </div>
+        <p class="dropzone-text">Перетащите PDF или AI‑файл сюда</p>
+        <p class="dropzone-subtext">или</p>
+        <button type="button" id="browseBtn" class="btn btn-secondary">Выбрать файл</button>
+      </div>
+
+      <div id="fileInfo" class="file-info hidden">
+        <div class="file-info-row">
+          <div class="file-meta">
+            <span id="fileName" class="file-name">—</span>
+            <span id="fileMeta" class="file-meta-text">—</span>
+          </div>
+          <button type="button" id="resetBtn" class="btn btn-text">Заменить файл</button>
+        </div>
+      </div>
+
+      <div id="progress" class="progress hidden">
+        <div class="spinner"></div>
+        <span id="progressText">Обработка файла…</span>
+      </div>
+
+      <div id="errorBox" class="error-box hidden"></div>
+      <div id="noticeBox" class="notice-box hidden"></div>
+    </section>
+
+    <section id="resultsSection" class="results-section hidden">
+      <div id="pagesBreakdown" class="pages-breakdown"></div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <p>Работает полностью локально, в браузере. Не отправляет файлы никуда.</p>
+  </footer>
+
+</div>
+
+<script src="lib/pdf.min.js"></script>
+<script src="app.js?v=3"></script>
+</body>
+</html>

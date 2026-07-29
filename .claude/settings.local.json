@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\Adar\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\G--Claude-code-shtanzform-calculator\\\\756b2633-16ee-4acc-a917-62e0f766d067\\\\scratchpad\\\\test.pdf\" \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_tmp.pdf\")",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_tmp.pdf\" -Confirm:$false)",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_area_tmp.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\Adar\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\G--Claude-code-shtanzform-calculator\\\\756b2633-16ee-4acc-a917-62e0f766d067\\\\scratchpad\\\\test_area.pdf\" \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_area_tmp.pdf\")",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\Adar\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\G--Claude-code-shtanzform-calculator\\\\756b2633-16ee-4acc-a917-62e0f766d067\\\\scratchpad\\\\test_multipage.pdf\" \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_multi_tmp.pdf\")",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_multi_tmp.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\Adar\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\G--Claude-code-shtanzform-calculator\\\\756b2633-16ee-4acc-a917-62e0f766d067\\\\scratchpad\\\\test_open.pdf\" \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_open_tmp.pdf\")",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_open_tmp.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "PowerShell(Copy-Item -LiteralPath \"C:\\\\Users\\\\Adar\\\\Desktop\\\\��஡�� ��� ����஭_180�120�80 ��.pdf\" -Destination \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_real_tmp.pdf\")",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_real_tmp.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "PowerShell(Copy-Item -LiteralPath \"C:\\\\Users\\\\Adar\\\\Desktop\\\\��������___ 210�210�30 ��.pdf\" -Destination \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_kul_tmp.pdf\")",
+      "PowerShell(Copy-Item -LiteralPath \"C:\\\\Users\\\\Adar\\\\Desktop\\\\��஡�� ��� ����஭_180�120�80 ��.pdf\" -Destination \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_makaron_tmp.pdf\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_kul_tmp.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)",
+      "PowerShell(Remove-Item \"G:\\\\Claude_code\\\\shtanzform_calculator\\\\_test_makaron_tmp.pdf\" -ErrorAction SilentlyContinue -Confirm:$false)"
+    ]
+  }
+}
