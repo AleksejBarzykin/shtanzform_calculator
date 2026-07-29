@@ -199,7 +199,7 @@ async function handleFile(file) {
       const hmm = viewport.height * POINTS_TO_MM;
 
       const sheetAreaMm2 = wmm * hmm;
-      const fillAreaMm2 = computeFillAreaPt2(pageResult.redPaths) * POINTS_TO_MM * POINTS_TO_MM;
+      const fillAreaMm2 = computeFillAreaPt2(pageResult.redPaths, viewport.width, viewport.height) * POINTS_TO_MM * POINTS_TO_MM;
       const fillPercent = sheetAreaMm2 > 0 ? Math.min(100, Math.max(0, (fillAreaMm2 / sheetAreaMm2) * 100)) : 0;
 
       pages.push({
@@ -571,150 +571,112 @@ function subpathSignature(points, len) {
   return `${Math.round(len * 10)}|${r(minX)},${r(minY)},${r(maxX)},${r(maxY)}|${r(midX)},${r(midY)}`;
 }
 
-function polygonArea(points) {
-  let area = 0;
-  for (let i = 0; i < points.length; i++) {
-    const [x1, y1] = points[i];
-    const [x2, y2] = points[(i + 1) % points.length];
-    area += x1 * y2 - x2 * y1;
-  }
-  return Math.abs(area) / 2;
-}
-
-function pointInPolygon([px, py], points) {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-    const [xi, yi] = points[i];
-    const [xj, yj] = points[j];
-    const intersect = (yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
 // Real die-cutting knife lines deliberately leave small uncut "nick" bridges
-// (~0.5-6mm is common) so the piece doesn't fall out of the sheet during
-// cutting — the path is never meant to be 100% physically continuous. The
-// stitch tolerance has to span typical nick gaps, not just floating-point
-// noise. It's kept separate from SELF_CLOSE_TOLERANCE_PT (used only to
-// decide whether a single subpath's own two endpoints already coincide) —
-// otherwise a short bridge fragment whose own length is less than the
-// stitch tolerance gets mistaken for an already-closed (degenerate,
-// zero-area) loop and is pulled out of circulation before it can link the
-// two real curves it's meant to connect.
-const STITCH_TOLERANCE_PT = 20; // ~7mm
-const SELF_CLOSE_TOLERANCE_PT = 1; // ~0.35mm
+// (~0.5-9mm observed in real files) so the piece doesn't fall out of the
+// sheet during cutting — the path is never meant to be 100% physically
+// continuous. Reconstructing exact closed polygons by stitching fragment
+// endpoints together turned out to be fragile on real multi-shape sheets:
+// once the join tolerance is opened up enough to bridge a real nick gap,
+// busy junctions (several tabs/notches meeting near the same point, or two
+// separate parts placed close together) offer multiple plausible matches,
+// and a wrong pick anywhere silently produces a self-intersecting loop with
+// a wrong (sometimes near-zero) shoelace area.
+//
+// computeFillAreaPt2 sidesteps that entirely: it rasterizes the knife
+// strokes onto an offscreen canvas and flood-fills inward from the sheet's
+// own border, exactly like a paint-bucket tool — whatever the flood fill
+// can't reach is "enclosed". Nick gaps are bridged by explicitly drawing a
+// short connector between any two fragment endpoints that land close to
+// each other, rather than by drawing every stroke extra-thick — a thick
+// stroke would "bridge" gaps too, but it also eats into the interior along
+// every ordinary (already-closed) edge, systematically undercounting the
+// area. Thin strokes plus targeted connectors keep the measured boundary
+// accurate while still closing the real gaps.
+const AREA_RASTER_PT = 2; // ~0.7mm per cell at full resolution
+const AREA_RASTER_MAX_DIM = 1400; // cap grid size; resolution coarsens automatically past this
+const AREA_LINE_PX = 1.5; // stroke width in raster pixels — just enough to avoid aliasing gaps
+const AREA_BRIDGE_TOLERANCE_PT = 32; // ~11mm, comfortably above observed nick gaps (up to ~9mm)
 
-function distSq(a, b) {
-  const dx = a[0] - b[0], dy = a[1] - b[1];
-  return dx * dx + dy * dy;
-}
+function computeFillAreaPt2(redPaths, sheetWidthPt, sheetHeightPt) {
+  if (!redPaths || !redPaths.length || !(sheetWidthPt > 0) || !(sheetHeightPt > 0)) return 0;
 
-// Area calc needs closed loops, but a knife contour is sometimes drawn as
-// several disconnected open subpaths that just happen to meet at the
-// corners (separate stroke() calls per side, no closePath). This stitches
-// open fragments whose endpoints coincide (within tolerance) end-to-end
-// into closed loops, purely for the fill-area calculation below — it does
-// not touch length totals, which are computed independently per subpath
-// and are correct regardless of whether a contour is closed.
-function stitchClosedContours(paths, tolerance, selfCloseTolerance = SELF_CLOSE_TOLERANCE_PT) {
-  const tolSq = tolerance * tolerance;
-  const selfTolSq = selfCloseTolerance * selfCloseTolerance;
-  const closed = [];
-  const openChains = [];
+  const scaleDown = Math.max(1, sheetWidthPt / AREA_RASTER_PT / AREA_RASTER_MAX_DIM, sheetHeightPt / AREA_RASTER_PT / AREA_RASTER_MAX_DIM);
+  const cellPt = AREA_RASTER_PT * scaleDown;
+  const cols = Math.max(1, Math.round(sheetWidthPt / cellPt));
+  const rows = Math.max(1, Math.round(sheetHeightPt / cellPt));
 
-  for (const p of paths) {
-    if (!p || p.length < 2) continue;
-    if (distSq(p[0], p[p.length - 1]) <= selfTolSq) {
-      closed.push(p);
-    } else {
-      openChains.push(p);
+  const bridgeTolSq = AREA_BRIDGE_TOLERANCE_PT * AREA_BRIDGE_TOLERANCE_PT;
+  const endpoints = [];
+  for (const p of redPaths) {
+    if (p && p.length >= 2) { endpoints.push(p[0], p[p.length - 1]); }
+  }
+  const bridges = [];
+  for (let i = 0; i < endpoints.length; i++) {
+    for (let j = i + 1; j < endpoints.length; j++) {
+      const dx = endpoints[i][0] - endpoints[j][0], dy = endpoints[i][1] - endpoints[j][1];
+      const d2 = dx * dx + dy * dy;
+      if (d2 > 0.0001 && d2 <= bridgeTolSq) bridges.push([endpoints[i], endpoints[j]]);
     }
   }
 
-  const used = new Array(openChains.length).fill(false);
-  const endpointIndex = new Map();
-  const cellKey = (pt) => `${Math.round(pt[0] / tolerance)},${Math.round(pt[1] / tolerance)}`;
+  const canvas = document.createElement('canvas');
+  canvas.width = cols;
+  canvas.height = rows;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, cols, rows);
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = AREA_LINE_PX;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
 
-  openChains.forEach((chain, idx) => {
-    [['start', chain[0]], ['end', chain[chain.length - 1]]].forEach(([which, pt]) => {
-      const key = cellKey(pt);
-      if (!endpointIndex.has(key)) endpointIndex.set(key, []);
-      endpointIndex.get(key).push({ idx, which });
-    });
-  });
-
-  function findMatch(pt) {
-    const cx = Math.round(pt[0] / tolerance);
-    const cy = Math.round(pt[1] / tolerance);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const list = endpointIndex.get(`${cx + dx},${cy + dy}`);
-        if (!list) continue;
-        for (const entry of list) {
-          if (used[entry.idx]) continue;
-          const chain = openChains[entry.idx];
-          const candPt = entry.which === 'start' ? chain[0] : chain[chain.length - 1];
-          if (distSq(pt, candPt) <= tolSq) return entry;
-        }
-      }
-    }
-    return null;
+  const scale = 1 / cellPt;
+  for (const path of redPaths) {
+    if (!path || path.length < 2) continue;
+    ctx.beginPath();
+    ctx.moveTo(path[0][0] * scale, path[0][1] * scale);
+    for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0] * scale, path[i][1] * scale);
+    ctx.stroke();
+  }
+  for (const [a, b] of bridges) {
+    ctx.beginPath();
+    ctx.moveTo(a[0] * scale, a[1] * scale);
+    ctx.lineTo(b[0] * scale, b[1] * scale);
+    ctx.stroke();
   }
 
-  for (let i = 0; i < openChains.length; i++) {
-    if (used[i]) continue;
-    used[i] = true;
-    let merged = openChains[i];
-
-    for (let guard = 0; guard < openChains.length && distSq(merged[0], merged[merged.length - 1]) > tolSq; guard++) {
-      const match = findMatch(merged[merged.length - 1]);
-      if (!match) break;
-      used[match.idx] = true;
-      const chain = openChains[match.idx];
-      merged = merged.concat(match.which === 'start' ? chain.slice(1) : chain.slice(0, -1).reverse());
-    }
-
-    for (let guard = 0; guard < openChains.length && distSq(merged[0], merged[merged.length - 1]) > tolSq; guard++) {
-      const match = findMatch(merged[0]);
-      if (!match) break;
-      used[match.idx] = true;
-      const chain = openChains[match.idx];
-      merged = (match.which === 'end' ? chain.slice(0, -1) : chain.slice(1).reverse()).concat(merged);
-    }
-
-    // Only keep it if the stitching actually closed the loop — a fragment
-    // with no matching partner anywhere stays open and is dropped here.
-    if (merged.length >= 3 && distSq(merged[0], merged[merged.length - 1]) <= tolSq) {
-      closed.push(merged);
-    }
+  const img = ctx.getImageData(0, 0, cols, rows).data;
+  const cellCount = cols * rows;
+  const isWall = new Uint8Array(cellCount);
+  for (let i = 0, p = 0; i < cellCount; i++, p += 4) {
+    isWall[i] = (img[p] < 250 || img[p + 1] < 250 || img[p + 2] < 250) ? 1 : 0;
   }
 
-  return closed;
-}
-
-// Fill area = area enclosed by the outermost knife (red) contours only — crease
-// lines don't define the physical cut boundary. Each closed red contour is
-// treated as its own candidate shape; a contour nested inside a larger one
-// (a hole or inner cutout) is excluded so multiple separate pieces on one
-// sheet, or shapes with cutouts, aren't double-counted or inflated.
-function computeFillAreaPt2(redPaths) {
-  const stitched = stitchClosedContours((redPaths || []).filter((p) => p && p.length >= 2), STITCH_TOLERANCE_PT);
-  const contours = stitched
-    .map((points) => ({ points, area: polygonArea(points) }))
-    .filter((c) => c.area > 1)
-    .sort((a, b) => b.area - a.area);
-
-  let total = 0;
-  for (let i = 0; i < contours.length; i++) {
-    const testPoint = contours[i].points[0];
-    let nested = false;
-    for (let j = 0; j < i; j++) {
-      if (pointInPolygon(testPoint, contours[j].points)) { nested = true; break; }
-    }
-    if (!nested) total += contours[i].area;
+  // Flood-fill "outside" inward from every border cell (iterative, to avoid
+  // recursion limits on large grids).
+  const outside = new Uint8Array(cellCount);
+  const stack = [];
+  function pushIfOpen(x, y) {
+    if (x < 0 || y < 0 || x >= cols || y >= rows) return;
+    const idx = y * cols + x;
+    if (outside[idx] || isWall[idx]) return;
+    outside[idx] = 1;
+    stack.push(idx);
   }
-  return total;
+  for (let x = 0; x < cols; x++) { pushIfOpen(x, 0); pushIfOpen(x, rows - 1); }
+  for (let y = 0; y < rows; y++) { pushIfOpen(0, y); pushIfOpen(cols - 1, y); }
+  while (stack.length) {
+    const idx = stack.pop();
+    const x = idx % cols, y = (idx / cols) | 0;
+    pushIfOpen(x + 1, y); pushIfOpen(x - 1, y); pushIfOpen(x, y + 1); pushIfOpen(x, y - 1);
+  }
+
+  let insideCells = 0;
+  for (let i = 0; i < cellCount; i++) {
+    if (!outside[i] && !isWall[i]) insideCells++;
+  }
+
+  return insideCells * cellPt * cellPt;
 }
 
 /* ---------- Color helpers ---------- */
