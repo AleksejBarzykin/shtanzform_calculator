@@ -15,6 +15,8 @@
   --border: #e5e5e7;
   --accent: #0071e3;
   --accent-hover: #0077ed;
+  --green: #1a9850;
+  --green-hover: #178744;
   --error-bg: #fdecec;
   --error-text: #b3261e;
   --notice-bg: #fff8e6;
@@ -61,16 +63,35 @@ body {
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-secondary { background: #e8e8ed; color: var(--text); }
 .btn-secondary:hover { background: #dcdce1; }
+.btn-green { background: var(--green); color: #fff; }
+.btn-green:hover { background: var(--green-hover); }
 .btn:disabled { opacity: .5; cursor: default; }
 
 .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px 20px; }
-.field { display: flex; flex-direction: column; gap: 6px; }
+.field { display: flex; flex-direction: column; gap: 6px; position: relative; }
 .field label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .03em; }
 .field select, .field input[type=number] {
   font-family: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border);
   border-radius: var(--radius-sm); background: #fff; color: var(--text); width: 100%;
 }
-.field .hint { font-size: 11px; color: var(--text-secondary); line-height: 1.35; }
+/* Подсказки убраны из потока и всплывают при наведении на название параметра.
+   Задержка нужна, чтобы они не мелькали, когда мышь просто проходит по блоку;
+   прячутся сразу, без задержки. Указателя-подсказки у названий нет — только
+   курсор help, чтобы не засорять сетку значками. */
+.field > label { align-self: flex-start; cursor: help; }
+.field .hint {
+  position: absolute; top: calc(100% + 6px); left: 0; width: 100%; z-index: 5;
+  background: #1d1d1f; color: #fff; padding: 9px 11px; border-radius: 8px;
+  font-size: 12px; line-height: 1.4; text-transform: none; letter-spacing: 0;
+  box-shadow: 0 8px 24px rgba(0,0,0,.24); pointer-events: none;
+  opacity: 0; visibility: hidden; transform: translateY(-4px);
+  transition: opacity .14s ease, transform .14s ease, visibility 0s linear .14s;
+}
+.field > label:hover ~ .hint,
+.field:has(:focus-visible) .hint {
+  opacity: 1; visibility: visible; transform: none;
+  transition: opacity .16s ease .5s, transform .16s ease .5s, visibility 0s linear .5s;
+}
 .field-inline { display: flex; gap: 8px; }
 .check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.4; }
 /* подпись у галки — обычный текст, а не заголовок поля */
@@ -105,12 +126,13 @@ th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-trans
 
 .page-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .page-title { font-size: 17px; font-weight: 600; }
+.page-file { font-weight: 400; color: var(--text-secondary); margin-left: 8px; font-size: 14px; word-break: break-all; }
 .page-meta { font-size: 13px; color: var(--text-secondary); }
 .page-body { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; }
 @media (max-width: 720px) { .page-body { grid-template-columns: 1fr; } }
 .preview canvas { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; background: #fff; display: block; }
 .seps { display: grid; grid-template-columns: repeat(auto-fit, minmax(38px, 1fr)); gap: 6px; margin-top: 8px; }
-.sep-item { text-align: center; font-size: 10px; color: var(--text-secondary); line-height: 1.25; word-break: break-word; }
+.sep-item { text-align: center; font-size: 10px; color: var(--text-secondary); line-height: 1.25; overflow-wrap: break-word; }
 .sep-item canvas { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 4px; display: block; }
 
 /* Раскрывающийся блок */
@@ -174,6 +196,13 @@ th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-trans
 .lightbox-nav.prev { left: 14px; }
 .lightbox-nav.next { right: 14px; }
 
+.card-actions {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);
+}
+.shot-status { font-size: 12px; color: var(--text-secondary); }
+.shot-status.err { color: var(--error-text); }
+
 .footer { text-align: center; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
 .hidden { display: none !important; }
 code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
@@ -203,17 +232,6 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
   <section class="card" id="settingsCard">
     <h2>Параметры расчёта</h2>
     <div class="settings">
-
-      <div class="field">
-        <label for="dpiSel">Разрешение анализа</label>
-        <select id="dpiSel">
-          <option value="72">72 dpi — черновик</option>
-          <option value="150">150 dpi — обычно достаточно</option>
-          <option value="200">200 dpi</option>
-          <option value="300" selected>300 dpi — точнее, медленнее</option>
-        </select>
-        <span class="hint">Влияет на точность тонких линий и растра. Требует повторного растрирования.</span>
-      </div>
 
       <div class="field">
         <label for="baseSel">База для 100 %</label>
@@ -1178,6 +1196,8 @@ function computeStats(scan, settings, spotIndex) {
     avgTac: toPercent(tacSum),
     maxTac: tacMax * 100,
     overLimitPercent: toPercent(overLimitPixels),
+    // Раздел «Основные цвета по площади» из интерфейса убран, но данные
+    // считаются — при необходимости таблицу легко вернуть.
     topColors: colorRows.slice(0, 12),
     colorCount: n,
     baseAreaM2: baseAreaMm2 / 1e6,
@@ -1206,9 +1226,13 @@ const state = {
   pdfDoc: null, viewItems: [],
 };
 
+// Разрешение анализа зафиксировано: выбор из интерфейса убран, но параметр
+// живёт дальше — при необходимости достаточно вернуть селектор.
+const ANALYSIS_DPI = 300;
+
 function readSettings() {
   return {
-    dpi: +el('dpiSel').value,
+    dpi: ANALYSIS_DPI,
     gcr: +el('gcrRange').value / 100,
     base: el('baseSel').value,
     sheetW: +el('sheetW').value,
@@ -1406,6 +1430,7 @@ function buildTotalCard(settings) {
     `<div class="page-meta" style="margin-bottom:14px">Суммарная площадь базы: ${fmt(totalBaseM2, 4)} м² на 1 экземпляр</div>` +
     channelTiles(rows) +
     inkTable(rows, settings, totalBaseM2);
+  card.appendChild(buildShotActions(card, null));
   return card;
 }
 
@@ -1416,8 +1441,11 @@ function buildPageCard(i, stats, settings) {
 
   const head = document.createElement('div');
   head.className = 'page-head';
-  head.innerHTML = `<div class="page-title">Страница ${i + 1}</div>` +
-    `<div class="page-meta">${escapeHtml(stats.baseLabel)} · ${fmt(stats.baseAreaM2, 4)} м² · растр ${scan.widthPx}×${scan.heightPx} px</div>`;
+  // Размер растра (scan.widthPx × scan.heightPx) специально не показываем,
+  // но он по-прежнему считается — вернуть строку можно одним словом.
+  head.innerHTML =
+    `<div class="page-title">Страница ${i + 1}<span class="page-file">· ${escapeHtml(state.fileName)}</span></div>` +
+    `<div class="page-meta">${escapeHtml(stats.baseLabel)} · ${fmt(stats.baseAreaM2, 4)} м²</div>`;
   card.appendChild(head);
 
   const body = document.createElement('div');
@@ -1449,11 +1477,11 @@ function buildPageCard(i, stats, settings) {
         <div class="tile-value">${fmt(stats.maxTac, 0)} %</div>
         <div class="tile-sub">выше ${settings.tacLimit} %: ${fmt(stats.overLimitPercent, 2)} % площади</div></div>
     </div>` +
-    inkTable(all, settings, stats.baseAreaM2) +
-    topColorsTable(stats);
+    inkTable(all, settings, stats.baseAreaM2);
   body.appendChild(right);
 
   card.appendChild(body);
+  card.appendChild(buildShotActions(card, i));
   return card;
 }
 
@@ -1484,29 +1512,8 @@ function inkTable(rows, settings, baseAreaM2) {
     </tr>`;
   }).join('');
   return `<h3>Расход краски</h3><div class="table-wrap"><table>
-    <thead><tr><th>Краска</th><th>Покрытие, %</th><th>Приведённая площадь, м²</th><th>На 1 лист, г</th><th>На тираж ${settings.copies}, кг</th></tr></thead>
+    <thead><tr><th>Краска</th><th>Покрытие, %</th><th>Площадь, м²</th><th>На 1 лист, г</th><th>На тираж ${settings.copies}, кг</th></tr></thead>
     <tbody>${body}</tbody></table></div>`;
-}
-
-function topColorsTable(stats) {
-  const rows = stats.topColors.map((r) => {
-    const pct = r.pct;
-    const css = `rgb(${Math.round(r.r)},${Math.round(r.g)},${Math.round(r.b)})`;
-    const desc = r.spot
-      ? `${escapeHtml(r.spot)} · ${fmt(r.tint * 100, 0)} %`
-      : (r.cmyk ? `C ${fmt(r.cmyk[0] * 100, 0)} · M ${fmt(r.cmyk[1] * 100, 0)} · Y ${fmt(r.cmyk[2] * 100, 0)} · K ${fmt(r.cmyk[3] * 100, 0)}` : '—');
-    return `<tr>
-      <td><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${css}"></span> ${desc}</td>
-      <td>${fmt(pct, 2)}</td>
-    </tr>`;
-  }).join('');
-  const shown = stats.topColors.length;
-  const total = stats.colorCount;
-  return `<details class="collapse"><summary>Основные цвета по площади
-      <span class="count">${shown} из ${total} ${plural(total, 'оттенка', 'оттенков', 'оттенков')}</span></summary>
-    <div class="collapse-body"><div class="table-wrap"><table>
-      <thead><tr><th>Цвет</th><th>% площади базы</th></tr></thead><tbody>${rows}</tbody></table></div></div>
-    </details>`;
 }
 
 function buildSeparationPreviews(scan, stats, settings, pageIndex) {
@@ -1568,6 +1575,182 @@ function buildAccuracyCard(settings) {
     На типовых работах расхождение обычно в пределах нескольких процентов.</p>
   </div></details>`;
   return card;
+}
+
+/* =========================================================================
+   Снимок блока расчёта в PNG.
+
+   Браузер не умеет «фотографировать» DOM, поэтому узел клонируется внутрь
+   <foreignObject> вместе со стилями страницы и растрируется в canvas с
+   увеличением — получается ровно то, что видно на экране, но в печатном
+   разрешении. Внутрь foreignObject не переносится содержимое <canvas>,
+   поэтому превью подменяются на <img> с тем же изображением.
+   ========================================================================= */
+
+const SHOT_SCALE = 3.2;                        // 96 dpi × 3,2 ≈ 307 dpi
+const SHOT_DPI = Math.round(96 * SHOT_SCALE);
+const SHOT_PAD = 24;                           // поля вокруг блока, иначе срежется тень
+
+async function cardToCanvas(card) {
+  const rect = card.getBoundingClientRect();
+  // Кнопки в снимок не попадают, поэтому их высоту вычитаем — иначе снизу
+  // останется пустая прозрачная полоса.
+  const omitted = [...card.querySelectorAll('[data-noshot]')].reduce((sum, n) => {
+    const cs = getComputedStyle(n);
+    return sum + n.getBoundingClientRect().height + parseFloat(cs.marginTop || 0) + parseFloat(cs.marginBottom || 0);
+  }, 0);
+  const w = Math.ceil(rect.width) + SHOT_PAD * 2;
+  const h = Math.ceil(rect.height - omitted) + SHOT_PAD * 2;
+
+  const clone = card.cloneNode(true);
+  clone.querySelectorAll('[data-noshot]').forEach((n) => n.remove());
+
+  const srcCanvases = [...card.querySelectorAll('canvas')];
+  [...clone.querySelectorAll('canvas')].forEach((dst, idx) => {
+    const src = srcCanvases[idx];
+    if (!src) { dst.remove(); return; }
+    const box = src.getBoundingClientRect();
+    const cs = getComputedStyle(src);
+    const img = document.createElement('img');
+    img.setAttribute('src', src.toDataURL('image/png'));
+    img.setAttribute('style', `display:block;width:${box.width}px;height:${box.height}px;` +
+      `border:${cs.borderTopWidth} solid ${cs.borderTopColor};border-radius:${cs.borderRadius};background:#fff`);
+    dst.replaceWith(img);
+  });
+
+  const wrap = document.createElement('div');
+  wrap.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+  // Шрифт и цвет заданы на body, которого в снимке нет, — переносим на обёртку,
+  // иначе текст отрисуется системным засечным.
+  wrap.setAttribute('style', `width:${w}px;min-height:${h}px;padding:${SHOT_PAD}px;box-sizing:border-box;background:var(--bg);` +
+    'color:var(--text);-webkit-font-smoothing:antialiased;' +
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter","Helvetica Neue",Arial,sans-serif');
+  const styleEl = document.createElement('style');
+  styleEl.textContent = [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n');
+  wrap.appendChild(styleEl);
+  wrap.appendChild(clone);
+
+  const xml = new XMLSerializer().serializeToString(wrap);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(w * SHOT_SCALE)}" ` +
+    `height="${Math.round(h * SHOT_SCALE)}" viewBox="0 0 ${w} ${h}">` +
+    `<foreignObject x="0" y="0" width="${w}" height="${h}">${xml}</foreignObject></svg>`;
+
+  // Именно data-URI, а не blob: с blob-ссылки foreignObject помечает canvas
+  // как «испачканный», и выгрузить картинку уже нельзя.
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  await img.decode();
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(w * SHOT_SCALE);
+  canvas.height = Math.round(h * SHOT_SCALE);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes, from, to) {
+  let c = 0xffffffff;
+  for (let i = from; i < to; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * Прописывает в PNG физическое разрешение (chunk pHYs), иначе при вставке в
+ * Word или вёрстку картинка встанет как 96 dpi и раздуется по размеру.
+ */
+async function withPngDpi(blob, dpi) {
+  const src = new Uint8Array(await blob.arrayBuffer());
+  const insertAt = 8 + 4 + 4 + 13 + 4; // подпись + IHDR (длина, тип, 13 байт данных, CRC)
+  const ppm = Math.round(dpi / 0.0254);
+  const chunk = new Uint8Array(21);
+  const dv = new DataView(chunk.buffer);
+  dv.setUint32(0, 9);
+  chunk[4] = 0x70; chunk[5] = 0x48; chunk[6] = 0x59; chunk[7] = 0x73; // 'pHYs'
+  dv.setUint32(8, ppm); dv.setUint32(12, ppm);
+  chunk[16] = 1; // единица измерения — метр
+  dv.setUint32(17, crc32(chunk, 4, 17));
+
+  const out = new Uint8Array(src.length + chunk.length);
+  out.set(src.subarray(0, insertAt), 0);
+  out.set(chunk, insertAt);
+  out.set(src.subarray(insertAt), insertAt + chunk.length);
+  return new Blob([out], { type: 'image/png' });
+}
+
+async function cardToBlob(card) {
+  const canvas = await cardToCanvas(card);
+  const raw = await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas.toBlob вернул пусто'))), 'image/png');
+  });
+  canvas.width = canvas.height = 0;
+  return withPngDpi(raw, SHOT_DPI);
+}
+
+function shotFileName(pageIndex) {
+  const base = (state.fileName || 'запечатка').replace(/\.[^.]+$/, '');
+  const page = pageIndex === null ? 'итого' : `стр${pageIndex + 1}`;
+  return `${base}_${page}_запечатка_${SHOT_DPI}dpi.png`;
+}
+
+function buildShotActions(card, pageIndex) {
+  const row = document.createElement('div');
+  row.className = 'card-actions';
+  row.setAttribute('data-noshot', '');
+  row.innerHTML =
+    '<button type="button" class="btn btn-primary" data-act="save">Скачать отчёт</button>' +
+    '<button type="button" class="btn btn-green" data-act="copy">Копировать отчёт</button>' +
+    `<span class="shot-status">PNG ${SHOT_DPI} dpi</span>`;
+
+  const status = row.querySelector('.shot-status');
+  const say = (text, isError) => { status.textContent = text; status.classList.toggle('err', !!isError); };
+
+  row.querySelector('[data-act=save]').addEventListener('click', async () => {
+    say('Готовлю картинку…');
+    try {
+      const blob = await cardToBlob(card);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = shotFileName(pageIndex);
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      say(`Сохранено · ${SHOT_DPI} dpi · ${formatSize(blob.size)}`);
+    } catch (e) {
+      console.error(e);
+      say('Не удалось собрать картинку: ' + e.message, true);
+    }
+  });
+
+  row.querySelector('[data-act=copy]').addEventListener('click', async () => {
+    say('Готовлю картинку…');
+    try {
+      // Blob передаётся обещанием: иначе к моменту записи в буфер браузер уже
+      // не считает клик «свежим» и отказывает в доступе.
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': cardToBlob(card) })]);
+      say(`Скопировано · ${SHOT_DPI} dpi`);
+    } catch (e) {
+      console.error(e);
+      try {
+        const blob = await cardToBlob(card);
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        say(`Скопировано · ${SHOT_DPI} dpi`);
+      } catch (e2) {
+        console.error(e2);
+        say('Буфер недоступен — сохраните файлом', true);
+      }
+    }
+  });
+  return row;
 }
 
 /* =========================================================================
@@ -1819,7 +2002,7 @@ function exportCsv() {
     ['Норма расхода CMYK, г/м²', num(settings.inkWeight, 3)].join(';'),
     ['Норма расхода Pantone, г/м²', num(settings.spotInkWeight, 3)].join(';'),
   ];
-  lines.push(['Страница', 'Краска', 'Покрытие %', 'Площадь базы м2', 'Приведённая площадь м2', 'Краски на лист г', 'На тираж кг'].join(';'));
+  lines.push(['Страница', 'Краска', 'Покрытие %', 'Площадь базы м2', 'Площадь м2', 'Краски на лист г', 'На тираж кг'].join(';'));
   state.stats.forEach((st, i) => {
     [...st.channels, ...st.spotChannels].forEach((ch) => {
       const grams = ch.inkAreaM2 * inkWeightFor(ch, settings);
@@ -1846,12 +2029,6 @@ function fmt(v, digits) {
   return v.toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 function num(v, digits) { return isFinite(v) ? v.toFixed(digits).replace('.', ',') : ''; }
-function plural(n, one, few, many) {
-  const a = Math.abs(n) % 100, b = a % 10;
-  if (a > 10 && a < 20) return many;
-  if (b > 1 && b < 5) return few;
-  return b === 1 ? one : many;
-}
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' Б';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' КБ';
