@@ -533,13 +533,32 @@ function solve3(A, rhs) {
    поэтому имена и тоновые кривые достаём из структуры PDF сами.
    ========================================================================= */
 
-async function inflate(bytes) {
+async function inflateRaw(bytes) {
   for (const fmt of ['deflate', 'deflate-raw']) {
     try {
       const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(fmt));
       const buf = await new Response(stream).arrayBuffer();
       return new Uint8Array(buf);
     } catch (e) { /* пробуем следующий формат */ }
+  }
+  return null;
+}
+
+/**
+ * DecompressionStream считает ошибкой любой лишний байт после сжатых данных,
+ * а перед endstream почти всегда стоит перевод строки — поэтому при неудаче
+ * пробуем ещё раз, отрезая хвостовые пробельные байты.
+ */
+async function inflate(bytes) {
+  const direct = await inflateRaw(bytes);
+  if (direct) return direct;
+  let end = bytes.length;
+  for (let i = 0; i < 4 && end > 1; i++) {
+    const ch = bytes[end - 1];
+    if (ch !== 0x0a && ch !== 0x0d && ch !== 0x20 && ch !== 0x09) break;
+    end--;
+    const trimmed = await inflateRaw(bytes.subarray(0, end));
+    if (trimmed) return trimmed;
   }
   return null;
 }
@@ -573,8 +592,12 @@ async function buildObjectIndex(bytes) {
     let dataStart = streamKw + 6;
     if (raw[dataStart] === '\r') dataStart++;
     if (raw[dataStart] === '\n') dataStart++;
-    const dataEnd = raw.indexOf('endstream', dataStart);
+    let dataEnd = raw.indexOf('endstream', dataStart);
     if (dataEnd === -1) continue;
+    // /Length точнее поиска endstream: он не захватывает перевод строки перед
+    // ключевым словом. Косвенную ссылку (/Length 12 0 R) не берём.
+    const lenM = dict.match(/\/Length\s+(\d+)(?!\s+\d+\s+R)/);
+    if (lenM && dataStart + +lenM[1] <= dataEnd) dataEnd = dataStart + +lenM[1];
 
     const out = await inflate(bytes.subarray(dataStart, dataEnd));
     if (!out) continue;
@@ -596,7 +619,7 @@ async function buildObjectIndex(bytes) {
       if (!index.has(String(num))) index.set(String(num), text.slice(from, to));
     }
   }
-  return { index, texts };
+  return { index, texts, raw };
 }
 
 /** Разбор функции тонового перехода: поддерживается FunctionType 2 (C0/C1/N). */
@@ -613,12 +636,70 @@ function parseTintFunction(src) {
   return { c0, c1, n: nM ? +nM[1] : 1 };
 }
 
-/** Компоненты альтернативного пространства -> RGB. */
+/**
+ * Компоненты альтернативного пространства -> RGB — только для простых
+ * пространств. Lab, ICCBased и прочее сюда сознательно не попадают: их
+ * тоновая шкала снимается замером (probeSpotRamps), а не считается формулой.
+ */
 function altToRgb(alt, comps) {
-  if (alt === 'cmyk' || comps.length === 4) return cmykToRgb(comps[0], comps[1], comps[2], comps[3]);
-  if (comps.length === 3) return [comps[0] * 255, comps[1] * 255, comps[2] * 255];
-  if (comps.length === 1) return [comps[0] * 255, comps[0] * 255, comps[0] * 255];
+  if (alt === 'cmyk' && comps.length >= 4) return cmykToRgb(comps[0], comps[1], comps[2], comps[3]);
+  if (alt === 'rgb' && comps.length >= 3) return [comps[0] * 255, comps[1] * 255, comps[2] * 255];
+  if (alt === 'gray' && comps.length >= 1) return [comps[0] * 255, comps[0] * 255, comps[0] * 255];
   return null;
+}
+
+/**
+ * Вырезает массив описания цветового пространства целиком: от '[' перед
+ * /Separation до парной ']'. Строки и комментарии пропускаются, чтобы
+ * скобка внутри них не сбила счёт.
+ */
+function extractEnclosingArray(text, sepIdx) {
+  let start = -1;
+  for (let i = sepIdx; i >= 0 && i > sepIdx - 12; i--) {
+    const ch = text[i];
+    if (ch === '[') { start = i; break; }
+    if (i !== sepIdx && ch !== ' ' && ch !== '\n' && ch !== '\r' && ch !== '\t') return null;
+  }
+  if (start < 0) return null;
+
+  let depth = 0;
+  const limit = Math.min(text.length, start + 20000);
+  for (let i = start; i < limit; i++) {
+    const ch = text[i];
+    if (ch === '(') {
+      let esc = false, nest = 0;
+      for (i++; i < limit; i++) {
+        const c = text[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\') esc = true;
+        else if (c === '(') nest++;
+        else if (c === ')') { if (nest === 0) break; nest--; }
+      }
+      continue;
+    }
+    if (ch === '%') { while (i < limit && text[i] !== '\n' && text[i] !== '\r') i++; continue; }
+    if (ch === '[') depth++;
+    else if (ch === ']') { depth--; if (depth === 0) return text.slice(start, i + 1); }
+  }
+  return null;
+}
+
+/** Данные, нужные чтобы дописать к файлу инкрементальное обновление. */
+function readDocInfo(raw) {
+  const info = { encrypted: /\/Encrypt\s+\d+\s+\d+\s+R/.test(raw), root: null, maxObj: 0, prevStartXref: null };
+  let m;
+  const rootRe = /\/Root\s+(\d+)\s+\d+\s+R/g;
+  while ((m = rootRe.exec(raw)) !== null) info.root = +m[1];
+  const sizeRe = /\/Size\s+(\d+)/g;
+  while ((m = sizeRe.exec(raw)) !== null) if (+m[1] < 1e7) info.maxObj = Math.max(info.maxObj, +m[1]);
+  const objRe = /(\d+)\s+\d+\s+obj\b/g;
+  while ((m = objRe.exec(raw)) !== null) if (+m[1] < 1e7) info.maxObj = Math.max(info.maxObj, +m[1]);
+  const sx = raw.lastIndexOf('startxref');
+  if (sx >= 0) {
+    const num = raw.slice(sx + 9, sx + 40).match(/\d+/);
+    if (num) info.prevStartXref = +num[0];
+  }
+  return info;
 }
 
 /** Находит все Separation-краски: имя + тоновая шкала (101 точка RGB). */
@@ -629,9 +710,10 @@ async function findSpotColors(bytes) {
   try {
     objData = await buildObjectIndex(bytes);
   } catch (e) {
-    return { spots: [], deviceN: [], failed: true };
+    return { spots: [], deviceN: [], failed: true, docInfo: null };
   }
-  const { index, texts } = objData;
+  const { index, texts, raw } = objData;
+  const docInfo = readDocInfo(raw);
 
   for (const text of texts) {
     // /Separation /Name /AlternateSpace  <fn dict | N 0 R>
@@ -656,8 +738,9 @@ async function findSpotColors(bytes) {
       else if (refM && index.has(refM[1])) fnSrc = index.get(refM[1]);
 
       const fn = parseTintFunction(fnSrc);
+      const csText = extractEnclosingArray(text, m.index);
       const prev = spots.get(name);
-      if (prev && (prev.ramp || !fn)) continue;
+      if (prev && (prev.csText || prev.ramp) && !(csText && !prev.csText)) continue;
 
       let ramp = null, solidCmyk = null;
       if (fn) {
@@ -675,9 +758,9 @@ async function findSpotColors(bytes) {
           if (!rgb) { ramp = null; break; }
           ramp[i * 3] = rgb[0]; ramp[i * 3 + 1] = rgb[1]; ramp[i * 3 + 2] = rgb[2];
         }
-        if ((alt === 'cmyk' || fn.c1.length === 4)) solidCmyk = fn.c1.slice(0, 4);
+        if (alt === 'cmyk' && fn.c1.length >= 4) solidCmyk = fn.c1.slice(0, 4);
       }
-      spots.set(name, { name, alt, ramp, solidCmyk });
+      spots.set(name, { name, alt, ramp, solidCmyk, csText, rampSource: ramp ? 'parsed' : null });
     }
 
     // DeviceN — имена перечислены массивом; тон по такой краске не считаем.
@@ -691,7 +774,124 @@ async function findSpotColors(bytes) {
       });
     }
   }
-  return { spots: [...spots.values()], deviceN: [...deviceNNames], failed: false };
+  return { spots: [...spots.values()], deviceN: [...deviceNNames], failed: false, docInfo };
+}
+
+/* -------------------------------------------------------------------------
+   Замер тоновой шкалы плашки.
+
+   Считать шкалу самостоятельно ненадёжно: альтернативным пространством
+   бывает Lab (так Illustrator пишет библиотеки PANTONE) или ICCBased, а
+   функция перехода — табличной или вообще программой на PostScript. Поэтому
+   шкалу не вычисляем, а спрашиваем у pdf.js: к файлу дописывается
+   инкрементальное обновление со служебной страницей, где та же самая краска
+   (ссылками на существующие объекты) залита плашками 0…100 %. Рендерим её и
+   читаем реальные RGB. Совпадение с растром макета становится точным по
+   построению, при любом типе функции и любом альтернативном пространстве.
+   ------------------------------------------------------------------------- */
+
+const PROBE_SW = 6;   // ширина плашки-образца, pt
+const PROBE_SH = 8;   // высота строки образцов, pt
+const PROBE_STEPS = 100;
+
+function buildProbeDoc(bytes, docInfo, probeSpots) {
+  if (!docInfo || docInfo.encrypted || !docInfo.root || !docInfo.prevStartXref) return null;
+  if (!probeSpots.length) return null;
+
+  const pageW = (PROBE_STEPS + 1) * PROBE_SW;
+  const pageH = probeSpots.length * PROBE_SH;
+  const csEntries = probeSpots.map((s, i) => `/S${i} ${s.csText}`).join(' ');
+
+  let content = '';
+  probeSpots.forEach((s, i) => {
+    const y = pageH - (i + 1) * PROBE_SH;
+    content += `/S${i} cs\n`;
+    for (let t = 0; t <= PROBE_STEPS; t++) {
+      content += `${(t / PROBE_STEPS).toFixed(3)} scn ${t * PROBE_SW} ${y} ${PROBE_SW} ${PROBE_SH} re f\n`;
+    }
+  });
+
+  const rootNum = docInfo.root;
+  const pagesNum = docInfo.maxObj + 1, pageNum = docInfo.maxObj + 2, contentNum = docInfo.maxObj + 3;
+  // Каталог переопределяется так, чтобы в документе осталась только служебная
+  // страница: сам макет мы разбираем по исходному файлу, а здесь нужен лишь
+  // доступ к объектам краски — они остаются на своих местах.
+  const objs = [
+    [rootNum, `<< /Type /Catalog /Pages ${pagesNum} 0 R >>`],
+    [pagesNum, `<< /Type /Pages /Kids [${pageNum} 0 R] /Count 1 >>`],
+    [pageNum, `<< /Type /Page /Parent ${pagesNum} 0 R /MediaBox [0 0 ${pageW} ${pageH}] ` +
+      `/Resources << /ColorSpace << ${csEntries} >> >> /Contents ${contentNum} 0 R >>`],
+    [contentNum, `<< /Length ${content.length} >>\nstream\n${content}endstream`],
+  ];
+
+  let update = '\n';
+  const offsets = new Map();
+  for (const [num, body] of objs) {
+    offsets.set(num, bytes.length + update.length);
+    update += `${num} 0 obj\n${body}\nendobj\n`;
+  }
+
+  const xrefPos = bytes.length + update.length;
+  const entry = (off) => String(off).padStart(10, '0') + ' 00000 n \n'; // ровно 20 байт
+  update += 'xref\n';
+  update += `${rootNum} 1\n` + entry(offsets.get(rootNum));
+  update += `${pagesNum} 3\n` + entry(offsets.get(pagesNum)) + entry(offsets.get(pageNum)) + entry(offsets.get(contentNum));
+  update += `trailer\n<< /Size ${contentNum + 1} /Root ${rootNum} 0 R /Prev ${docInfo.prevStartXref} >>\n` +
+            `startxref\n${xrefPos}\n%%EOF\n`;
+
+  const out = new Uint8Array(bytes.length + update.length);
+  out.set(bytes, 0);
+  for (let i = 0; i < update.length; i++) out[bytes.length + i] = update.charCodeAt(i) & 0xff;
+  return { data: out, pageW, pageH };
+}
+
+/** Снимает шкалы; возвращает число красок, для которых замер удался. */
+async function probeSpotRamps(bytes, docInfo, spots) {
+  const probeSpots = spots.filter((s) => s.csText);
+  const built = buildProbeDoc(bytes, docInfo, probeSpots);
+  if (!built) return 0;
+
+  let doc = null;
+  try {
+    doc = await pdfjsLib.getDocument({ data: built.data, stopAtErrors: false }).promise;
+    const page = await doc.getPage(1);
+    const scale = 2;
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(vp.width));
+    canvas.height = Math.max(1, Math.round(vp.height));
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    await renderPageTo(page, ctx, vp);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+    let ok = 0;
+    probeSpots.forEach((s, i) => {
+      const ramp = new Float32Array((PROBE_STEPS + 1) * 3);
+      let valid = true;
+      for (let t = 0; t <= PROBE_STEPS; t++) {
+        const x = Math.round((t * PROBE_SW + PROBE_SW / 2) * scale);
+        const y = Math.round((i * PROBE_SH + PROBE_SH / 2) * scale);
+        if (x >= canvas.width || y >= canvas.height) { valid = false; break; }
+        const p = (y * canvas.width + x) * 4;
+        ramp[t * 3] = img[p]; ramp[t * 3 + 1] = img[p + 1]; ramp[t * 3 + 2] = img[p + 2];
+      }
+      // Если 0 % и 100 % неразличимы, краска не нарисовалась — такой шкалой
+      // нельзя пользоваться, иначе она «поймает» всю белую бумагу.
+      if (valid) {
+        const d = Math.hypot(ramp[0] - ramp[PROBE_STEPS * 3], ramp[1] - ramp[PROBE_STEPS * 3 + 1],
+                             ramp[2] - ramp[PROBE_STEPS * 3 + 2]);
+        if (d < 8) valid = false;
+      }
+      if (valid) { s.ramp = ramp; s.rampSource = 'probe'; ok++; }
+    });
+    canvas.width = canvas.height = 0;
+    return ok;
+  } catch (e) {
+    console.warn('probe failed', e);
+    return 0;
+  } finally {
+    if (doc) { try { await doc.destroy(); } catch (e) {} }
+  }
 }
 
 /* =========================================================================
@@ -819,24 +1019,60 @@ const CHANNEL_META = [
   { key: 'k', label: 'Black',   css: 'var(--ink-k)' },
 ];
 
-function matchSpot(r, g, b, spots) {
-  let best = null, bestDist = 7.0; // допуск в единицах RGB — плашки заливаются ровным цветом
-  for (const s of spots) {
-    if (!s.ramp) continue;
-    for (let i = 0; i <= 100; i++) {
-      const dr = r - s.ramp[i * 3], dg = g - s.ramp[i * 3 + 1], db = b - s.ramp[i * 3 + 2];
-      const d = Math.sqrt(dr * dr + dg * dg + db * db);
-      if (d < bestDist) { bestDist = d; best = { spot: s, tint: i / 100 }; }
+const SPOT_TOLERANCE = 7;  // допуск в единицах RGB — плашки заливаются ровным цветом
+const SPOT_WHITE_GUARD = 11; // ближе этого к белому тон неотличим от бумаги
+
+/**
+ * Хеш точек всех тоновых шкал: ключ — цвет, огрублённый до 64 уровней на канал,
+ * плюс соседние ячейки. Без него сопоставление стоило бы 101 замер расстояния
+ * на каждый цвет страницы.
+ */
+function buildSpotIndex(spots) {
+  const list = spots.filter((s) => s.ramp);
+  if (!list.length) return null;
+  const map = new Map();
+  for (const spot of list) {
+    const steps = spot.ramp.length / 3 - 1;
+    // Самые светлые тоны от бумаги неотличимы. Если их проиндексировать, к
+    // плашке прилипнет весь белый фон (проверено на реальном макете: 27 %
+    // площади уходило в «плашка 1 %») и светлые растровые тона CMYK.
+    for (let t = 1; t <= steps; t++) {
+      const r = spot.ramp[t * 3], g = spot.ramp[t * 3 + 1], b = spot.ramp[t * 3 + 2];
+      if (Math.hypot(255 - r, 255 - g, 255 - b) < SPOT_WHITE_GUARD) continue;
+      const point = { spot, tint: t / steps, r, g, b };
+      const rk = r >> 2, gk = g >> 2, bk = b >> 2;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dg = -1; dg <= 1; dg++) {
+          for (let db = -1; db <= 1; db++) {
+            const kr = rk + dr, kg = gk + dg, kb = bk + db;
+            if (kr < 0 || kr > 63 || kg < 0 || kg > 63 || kb < 0 || kb > 63) continue;
+            const key = (kr << 12) | (kg << 6) | kb;
+            const arr = map.get(key);
+            if (arr) arr.push(point); else map.set(key, [point]);
+          }
+        }
+      }
     }
+  }
+  return map;
+}
+
+function matchSpot(r, g, b, spotIndex) {
+  if (!spotIndex) return null;
+  const cand = spotIndex.get(((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2));
+  if (!cand) return null;
+  let best = null, bestDist = SPOT_TOLERANCE;
+  for (const c of cand) {
+    const d = Math.hypot(r - c.r, g - c.g, b - c.b);
+    if (d < bestDist) { bestDist = d; best = c; }
   }
   return best;
 }
 
-function computeStats(scan, settings, spots) {
+function computeStats(scan, settings, spotIndex) {
   const { bCount, bR, bG, bB } = scan;
   const n = bCount.length;
   const gcr = settings.gcr;
-  const useSpots = settings.useSpots && spots.some((s) => s.ramp);
   const inkTh = settings.whiteThreshold; // доля (0..1) суммарной краски
 
   const sums = [0, 0, 0, 0];       // Σ (доля краски × пикселей)
@@ -849,9 +1085,8 @@ function computeStats(scan, settings, spots) {
 
   for (let i = 0; i < n; i++) {
     const cnt = bCount[i], r = bR[i], g = bG[i], b = bB[i];
-    let cmyk = null, spotHit = null;
-
-    if (useSpots) spotHit = matchSpot(r, g, b, spots);
+    let cmyk = null;
+    const spotHit = matchSpot(r, g, b, spotIndex);
 
     if (spotHit && spotHit.tint > 0) {
       const rec = spotSums.get(spotHit.spot.name) || { sum: 0, pixels: 0, spot: spotHit.spot };
@@ -863,11 +1098,6 @@ function computeStats(scan, settings, spots) {
       colorRows.push({ cnt, r, g, b, cmyk: null, spot: spotHit.spot.name, tint: spotHit.tint });
       continue;
     }
-    if (spotHit && spotHit.tint === 0) {
-      colorRows.push({ cnt, r, g, b, cmyk: [0, 0, 0, 0], spot: null, tint: 0 });
-      continue;
-    }
-
     cmyk = rgbToCmyk(r, g, b, gcr);
     const tac = cmyk[0] + cmyk[1] + cmyk[2] + cmyk[3];
     for (let ch = 0; ch < 4; ch++) {
@@ -1041,6 +1271,19 @@ async function handleFile(file) {
     return;
   }
 
+  if (state.spots.length) {
+    showProgress('Замер тоновых шкал плашечных красок…');
+    await new Promise((r) => setTimeout(r, 0));
+    try {
+      state.probedCount = await probeSpotRamps(buffer, spotInfo.docInfo, state.spots);
+    } catch (e) {
+      console.warn(e);
+      state.probedCount = 0;
+    }
+  } else {
+    state.probedCount = 0;
+  }
+
   const settings = readSettings();
   state.dpi = settings.dpi;
   state.scans = [];
@@ -1068,7 +1311,8 @@ async function handleFile(file) {
 
 function renderResults() {
   const settings = readSettings();
-  state.stats = state.scans.map((scan) => computeStats(scan, settings, state.spots));
+  state.spotIndex = settings.useSpots ? buildSpotIndex(state.spots) : null;
+  state.stats = state.scans.map((scan) => computeStats(scan, settings, state.spotIndex));
   resultsEl.innerHTML = '';
   resultsEl.classList.remove('hidden');
 
@@ -1086,7 +1330,11 @@ function renderNotices(settings) {
   if (state.spots.length) {
     items.push(`Плашечные краски (Separation) в файле: <b>${state.spots.map((s) => escapeHtml(s.name)).join(', ')}</b>.`);
     if (withRamp.length && settings.useSpots) {
-      items.push(`Для ${withRamp.length} из них удалось прочитать тоновую кривую — их площадь считается отдельным каналом и исключена из CMYK.`);
+      const probed = state.spots.filter((s) => s.rampSource === 'probe').length;
+      const how = probed === withRamp.length ? 'снята замером — служебная страница с плашками 0…100 % отрисована самим pdf.js'
+        : probed ? `снята замером для ${probed} из них, для остальных вычислена по описанию из файла`
+        : 'вычислена по описанию из файла';
+      items.push(`Тоновая шкала ${how}. Площадь таких красок считается отдельным каналом и исключена из CMYK.`);
     }
     if (noRamp.length) {
       items.push(`Не удалось разобрать тоновую кривую для: ${noRamp.map((s) => escapeHtml(s.name)).join(', ')} — эти краски попадут в CMYK как цветовой эквивалент.`);
@@ -1156,7 +1404,7 @@ function buildPageCard(i, stats, settings) {
   drawPreviewInto(pc, scan, null, settings);
   pc.addEventListener('click', () => openLightbox(pc, i, null, `Страница ${i + 1}`));
   left.appendChild(pc);
-  left.appendChild(buildSeparationPreviews(scan, settings, i));
+  left.appendChild(buildSeparationPreviews(scan, stats, settings, i));
   body.appendChild(left);
 
   const right = document.createElement('div');
@@ -1231,22 +1479,26 @@ function topColorsTable(stats) {
     </details>`;
 }
 
-function buildSeparationPreviews(scan, settings, pageIndex) {
+function buildSeparationPreviews(scan, stats, settings, pageIndex) {
   const wrap = document.createElement('div');
   wrap.className = 'seps';
-  CHANNEL_META.forEach((meta, ch) => {
+
+  const specs = CHANNEL_META.map((meta, ch) => ({ label: meta.label, spec: { type: 'cmyk', ch } }))
+    .concat(stats.spotChannels.map((sc) => ({ label: sc.label, spec: { type: 'spot', name: sc.label } })));
+
+  specs.forEach(({ label, spec }) => {
     const canvas = document.createElement('canvas');
     canvas.className = 'zoomable';
-    canvas.title = `${meta.label} — нажмите, чтобы посмотреть крупно`;
-    drawPreviewInto(canvas, scan, ch, settings);
+    canvas.title = `${label} — нажмите, чтобы посмотреть крупно`;
+    drawPreviewInto(canvas, scan, spec, settings);
     canvas.addEventListener('click', () =>
-      openLightbox(canvas, pageIndex, ch, `Страница ${pageIndex + 1} — сепарация ${meta.label}`));
+      openLightbox(canvas, pageIndex, spec, `Страница ${pageIndex + 1} — сепарация ${label}`));
 
     const item = document.createElement('div');
     item.className = 'sep-item';
     item.appendChild(canvas);
     const cap = document.createElement('div');
-    cap.textContent = meta.label;
+    cap.textContent = label;
     item.appendChild(cap);
     wrap.appendChild(item);
   });
@@ -1265,7 +1517,12 @@ function buildAccuracyCard(settings) {
     <p><b>Покрытие, %</b> — это средняя доля краски по площади базы: сумма тонов всех пикселей, делённая на площадь базы.
     Именно это число нужно для расчёта расхода краски. «Площадь с краской» — доля площади, где краска вообще присутствует.</p>
     <p><b>Что учитывается точно:</b> плашки и заливки, растровые изображения, прозрачность и наложения после
-    сведения — всё, что видно на оттиске. Плашечные краски с читаемой тоновой кривой считаются отдельными каналами.</p>
+    сведения — всё, что видно на оттиске.</p>
+    <p><b>Плашечные краски (Pantone).</b> Тоновая шкала не вычисляется по описанию из файла, а снимается замером:
+    к документу дописывается служебная страница, где та же краска залита плашками 0…100 %, pdf.js её рисует, и мы
+    читаем настоящие цвета. Поэтому работают и Lab, и ICC, и табличные функции перехода — а именно через Lab
+    Illustrator и пишет современные библиотеки PANTONE. Пиксели, совпавшие со шкалой, считаются отдельным каналом
+    с их процентом тона и исключаются из CMYK.</p>
     <p><b>Ограничения:</b></p>
     <ul>
       <li>Разделение чёрного и CMY (GCR) в файле однозначно не восстановимо — сейчас ${Math.round(settings.gcr * 100)} %.
@@ -1274,6 +1531,10 @@ function buildAccuracyCard(settings) {
         как RIP печатной машины.</li>
       <li>Очень тёмные и внегамутные цвета обрезаются по 0/255 при растрировании — часть информации теряется.</li>
       <li>Белая краска и лаки на белом фоне не видны и не считаются.</li>
+      <li>Самые светлые тона плашек (примерно до 3 % для тёмных красок) от бумаги в растре неотличимы —
+        они уходят в CMYK как ничтожная добавка, чтобы белый фон не засчитывался в плашку.</li>
+      <li>Плашка поверх другой краски или под прозрачностью сводится в один цвет и опознаётся только там,
+        где легла чистой.</li>
       <li>Тонкие линии при низком dpi усредняются — для штриховых работ берите 300 dpi.</li>
     </ul>
     <p>Эталон для сверки — <code>gs -o - -sDEVICE=inkcov file.pdf</code> (Ghostscript) или tiffsep для плашек.
@@ -1317,7 +1578,7 @@ function ensureLightbox() {
  * Открывает превью крупно с разворотом от миниатюры.
  * channel: null — композит, 0..3 — сепарация CMYK.
  */
-async function openLightbox(sourceCanvas, pageIndex, channel, title) {
+async function openLightbox(sourceCanvas, pageIndex, spec, title) {
   ensureLightbox();
   const scan = state.scans[pageIndex];
   if (!scan) return;
@@ -1331,7 +1592,7 @@ async function openLightbox(sourceCanvas, pageIndex, channel, title) {
   c.style.width = dw + 'px';
   c.style.height = dh + 'px';
   // Сразу показываем миниатюру — крупно и мыльно, но без ожидания.
-  drawPreviewInto(c, scan, channel, readSettings());
+  drawPreviewInto(c, scan, spec, readSettings());
   lb.caption.textContent = title;
   lb.source = sourceCanvas;
   lb.scrollLock = document.body.style.overflow;
@@ -1355,7 +1616,7 @@ async function openLightbox(sourceCanvas, pageIndex, channel, title) {
   const token = ++lb.token;
   lb.spinner.classList.add('busy');
   try {
-    const hi = await renderHiRes(pageIndex, dw, channel);
+    const hi = await renderHiRes(pageIndex, dw, spec);
     if (token !== lb.token) return;
     c.width = hi.width; c.height = hi.height;
     c.getContext('2d').drawImage(hi, 0, 0);
@@ -1396,10 +1657,10 @@ function closeLightbox() {
 }
 
 /** Растрирует страницу заново под размер показа; channel !== null — сепарация. */
-async function renderHiRes(pageIndex, cssWidth, channel) {
+async function renderHiRes(pageIndex, cssWidth, spec) {
   if (!state.pdfDoc) throw new Error('документ закрыт');
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cap = channel === null ? HIRES_MAX_PX : HIRES_SEP_MAX_PX;
+  const cap = !spec ? HIRES_MAX_PX : HIRES_SEP_MAX_PX;
   const targetPx = Math.max(320, Math.min(cap, Math.round(cssWidth * dpr)));
 
   const page = await state.pdfDoc.getPage(pageIndex + 1);
@@ -1409,44 +1670,54 @@ async function renderHiRes(pageIndex, cssWidth, channel) {
 
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d', { willReadFrequently: channel !== null });
+  const ctx = canvas.getContext('2d', { willReadFrequently: !!spec });
   await renderPageTo(page, ctx, vp);
   page.cleanup();
 
-  if (channel !== null) {
+  if (spec) {
     const img = ctx.getImageData(0, 0, w, h);
-    separationFromImage(img, channel, readSettings().gcr);
+    separationFromImage(img, spec, readSettings().gcr);
     ctx.putImageData(img, 0, 0);
   }
   return canvas;
 }
 
+/** Доля одной краски в цвете: spec — {type:'cmyk', ch} либо {type:'spot', name}. */
+function inkValueFor(r, g, b, gcr, spec) {
+  const hit = matchSpot(r, g, b, state.spotIndex);
+  if (spec.type === 'spot') return hit && hit.spot.name === spec.name ? hit.tint : 0;
+  if (hit) return 0; // пиксель отдан плашке и в CMYK не учитывается
+  return rgbToCmyk(r, g, b, gcr)[spec.ch];
+}
+
 /** Превращает RGB-растр в градации серого по одной краске (на месте). */
-function separationFromImage(img, channel, gcr) {
+function separationFromImage(img, spec, gcr) {
   const d = img.data;
   const cache = new Map();
   for (let p = 0; p < d.length; p += 4) {
     const r = d[p] & 0xf8, g = d[p + 1] & 0xf8, b = d[p + 2] & 0xf8;
     const key = (r << 16) | (g << 8) | b;
-    let cmyk = cache.get(key);
-    if (!cmyk) { cmyk = rgbToCmyk(r, g, b, gcr); cache.set(key, cmyk); }
-    const v = 255 - Math.round(cmyk[channel] * 255);
+    let v = cache.get(key);
+    if (v === undefined) {
+      v = 255 - Math.round(inkValueFor(r, g, b, gcr, spec) * 255);
+      cache.set(key, v);
+    }
     d[p] = v; d[p + 1] = v; d[p + 2] = v; d[p + 3] = 255;
   }
 }
 
 /** Рисует в canvas миниатюру страницы (композит или сепарацию) из уже собранного растра. */
-function drawPreviewInto(canvas, scan, channel, settings) {
+function drawPreviewInto(canvas, scan, spec, settings) {
   const src = scan.previewData;
   canvas.width = src.width; canvas.height = src.height;
   const ctx = canvas.getContext('2d');
-  if (channel === null) {
+  if (!spec) {
     ctx.putImageData(src, 0, 0);
     return;
   }
   const img = ctx.createImageData(src.width, src.height);
   img.data.set(src.data);
-  separationFromImage(img, channel, settings.gcr);
+  separationFromImage(img, spec, settings.gcr);
   ctx.putImageData(img, 0, 0);
 }
 
