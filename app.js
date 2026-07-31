@@ -69,8 +69,13 @@ function layerNameMatchesDieline(name) {
 // the dieline layer's geometry from any design/artwork layers:
 //  - 'none'   — no layers in the document at all; nothing to isolate, the
 //               whole file is scanned (today's behaviour).
-//  - 'auto'   — exactly one layer name matched a known dieline keyword.
+//  - 'auto'   — one or more layer names matched a known dieline keyword.
 //  - 'manual' — layers exist but none matched; the caller must ask the user.
+//
+// Every matching layer is kept, not just the first one. Files routinely carry
+// several: knife and crease split across "Cut" and "Crease", or — with placed
+// artwork — same-named empty duplicates alongside the layer that actually
+// holds the contours. Picking one would silently drop the rest.
 async function resolveDieLayer(pdfDoc) {
   let ocConfig = null;
   try {
@@ -82,13 +87,18 @@ async function resolveDieLayer(pdfDoc) {
   const list = groups ? Object.entries(groups).map(([id, g]) => ({ id, name: g.name || '' })) : [];
 
   if (list.length === 0) {
-    return { status: 'none', ocgId: null, layerName: null, groups: [] };
+    return { status: 'none', ocgIds: [], layerNames: [], groups: [] };
   }
-  const match = list.find((g) => layerNameMatchesDieline(g.name));
-  if (match) {
-    return { status: 'auto', ocgId: match.id, layerName: match.name, groups: list };
+  const matches = list.filter((g) => layerNameMatchesDieline(g.name));
+  if (matches.length) {
+    return {
+      status: 'auto',
+      ocgIds: matches.map((g) => g.id),
+      layerNames: matches.map((g) => g.name),
+      groups: list,
+    };
   }
-  return { status: 'needs-manual', ocgId: null, layerName: null, groups: list };
+  return { status: 'needs-manual', ocgIds: [], layerNames: [], groups: list };
 }
 
 /* ---------- DOM references ---------- */
@@ -274,8 +284,8 @@ async function handleFile(file) {
     showProgress('Обработка файла…');
     layerInfo = {
       status: choice.ocgId ? 'manual' : 'none',
-      ocgId: choice.ocgId,
-      layerName: choice.layerName,
+      ocgIds: choice.ocgId ? [choice.ocgId] : [],
+      layerNames: choice.ocgId ? [choice.layerName] : [],
       groups: layerInfo.groups,
     };
   }
@@ -293,7 +303,7 @@ async function handleFile(file) {
 
       const page = await pdfDoc.getPage(i);
       const opList = await page.getOperatorList();
-      const pageResult = analyzeOperatorList(opList, layerInfo.ocgId);
+      const pageResult = analyzeOperatorList(opList, layerInfo.ocgIds);
 
       // viewport at scale 1 already bakes in the page's own /Rotate, so its
       // width/height and transform match what a viewer would show on screen —
@@ -367,9 +377,17 @@ async function handleFile(file) {
 
 function formatDetectionLabel(detection) {
   if (!detection) return null;
-  if (detection.status === 'auto') return `Слой «${detection.layerName}» (определено автоматически)`;
-  if (detection.status === 'manual') return `Слой «${detection.layerName}» (выбрано вручную)`;
-  return null;
+  if (detection.status !== 'auto' && detection.status !== 'manual') return null;
+
+  // Same-named duplicates are common in files with placed artwork; listing
+  // «Cut lines», «Cut lines» would just look like a bug.
+  const names = [...new Set(detection.layerNames || [])];
+  if (!names.length) return null;
+
+  const quoted = names.map((n) => `«${n}»`).join(', ');
+  const noun = names.length > 1 ? 'Слои' : 'Слой';
+  const how = detection.status === 'auto' ? 'определено автоматически' : 'выбрано вручную';
+  return `${noun} ${quoted} (${how})`;
 }
 
 function detectPaperFormat(wmm, hmm) {
@@ -408,7 +426,7 @@ function formatFileSize(bytes) {
    OPS.constructPath entry: args = [subOpCodes, flatCoordsArray]. Everything
    else (color, save/restore/transform, paint ops) stays one entry per op. */
 
-function analyzeOperatorList(opList, targetOcgId) {
+function analyzeOperatorList(opList, targetOcgIds) {
   const OPS = pdfjsLib.OPS;
   const fnArray = opList.fnArray;
   const argsArray = opList.argsArray;
@@ -416,13 +434,15 @@ function analyzeOperatorList(opList, targetOcgId) {
   let ctm = IDENTITY_MATRIX;
   const ctmStack = [];
 
-  // When a specific dieline layer was identified, only geometry marked as
-  // belonging to that OCG (optional content group) counts — everything
-  // else (design/artwork content on other layers) is skipped entirely, not
-  // just excluded from red/green but not even shown as "other".
+  // When dieline layers were identified, only geometry marked as belonging to
+  // one of those OCGs (optional content groups) counts — everything else
+  // (design/artwork content on other layers) is skipped entirely, not just
+  // excluded from red/green but not even shown as "other". An empty list means
+  // no layer filtering at all: scan the whole page.
+  const targets = new Set(targetOcgIds || []);
   const ocStack = [];
   function insideTargetLayer() {
-    return !targetOcgId || ocStack.includes(targetOcgId);
+    return targets.size === 0 || ocStack.some((id) => targets.has(id));
   }
 
   let strokeCMYK = null;
