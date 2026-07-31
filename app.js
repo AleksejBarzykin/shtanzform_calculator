@@ -912,9 +912,17 @@ function classifyColor(cmyk) {
    stats, own export buttons — so a multi-page file reads as N independent
    single-page reports rather than one shared total. */
 
-function pageDisplayTitle(page, totalPages) {
-  if (totalPages > 1) return `${lastResult.fileName} (Монтажная область ${page.index})`;
+/* The title is always the bare file name; which page of a multi-page file
+   this block covers is shown separately, as a badge in the top-right corner
+   (nothing at all for a single-page file). */
+
+function pageDisplayTitle() {
   return lastResult.fileName;
+}
+
+function pageBadgeText(page, totalPages) {
+  if (totalPages <= 1) return null;
+  return `Стр. ${page.index} из ${totalPages}`;
 }
 
 function buildSummaryTileEl(labelText, dotClass) {
@@ -943,7 +951,8 @@ function buildSummaryTileEl(labelText, dotClass) {
 }
 
 function buildPageReportBlock(page, totalPages) {
-  const displayTitle = pageDisplayTitle(page, totalPages);
+  const displayTitle = pageDisplayTitle();
+  const badgeText = pageBadgeText(page, totalPages);
   const baseFileName = (lastResult.fileName || 'report').replace(/\.[^.]+$/, '');
   const downloadBase = totalPages > 1 ? `${baseFileName}_p${page.index}` : baseFileName;
 
@@ -954,6 +963,13 @@ function buildPageReportBlock(page, totalPages) {
   title.className = 'results-file-title';
   title.textContent = displayTitle;
   card.appendChild(title);
+
+  if (badgeText) {
+    const badge = document.createElement('span');
+    badge.className = 'page-badge';
+    badge.textContent = badgeText;
+    card.appendChild(badge);
+  }
 
   const detectionLabel = formatDetectionLabel(lastResult.detection);
   if (detectionLabel) {
@@ -1088,15 +1104,15 @@ function buildPageReportBlock(page, totalPages) {
   priceInputEl.addEventListener('input', recompute);
 
   copyBtnEl.addEventListener('click', () => {
-    const text = buildPageSummaryText(displayTitle, page, getPrice());
+    const text = buildPageSummaryText(displayTitle, badgeText, page, getPrice());
     copyTextToClipboard(text, feedback);
   });
   reportBtnEl.addEventListener('click', () => {
-    const canvasOut = generatePageReportCanvas(page, getPrice(), displayTitle);
+    const canvasOut = generatePageReportCanvas(page, getPrice(), displayTitle, badgeText);
     downloadCanvasAsPng(canvasOut, downloadBase);
   });
   copyReportBtnEl.addEventListener('click', () => {
-    const canvasOut = generatePageReportCanvas(page, getPrice(), displayTitle);
+    const canvasOut = generatePageReportCanvas(page, getPrice(), displayTitle, badgeText);
     copyCanvasToClipboard(canvasOut, feedback);
   });
 
@@ -1209,12 +1225,13 @@ function drawPagePreview(canvas, page, maxPx = PREVIEW_MAX_PX, dprOverride) {
 
 /* ---------- Copy to clipboard ---------- */
 
-function buildPageSummaryText(displayTitle, page, price) {
+function buildPageSummaryText(displayTitle, badgeText, page, price) {
   const totalAll = page.green + page.red;
   const totalCost = Math.round(totalAll * price);
 
   const lines = [];
   lines.push(`Файл: ${displayTitle}`);
+  if (badgeText) lines.push(badgeText);
   lines.push(formatSheetLabel(page.box));
   lines.push(`Цена за 1 м.п.: ${price} грн.`);
   lines.push(`Итоговая длина: ${totalAll.toFixed(2)} м.п.`);
@@ -1275,6 +1292,15 @@ function wrapTextLines(ctx, text, maxWidth) {
   return lines;
 }
 
+function ellipsizeText(ctx, text, maxWidth) {
+  if (!(maxWidth > 0) || ctx.measureText(text).width <= maxWidth) return text;
+  let cut = text;
+  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxWidth) {
+    cut = cut.slice(0, -1);
+  }
+  return `${cut}…`;
+}
+
 function drawLabelWithAsterisk(ctx, text, centerX, baselineY, mainFont, asteriskFont, color, asteriskColor) {
   ctx.textAlign = 'left';
   ctx.font = mainFont;
@@ -1312,7 +1338,7 @@ function drawSummaryTile(ctx, x, y, w, h, label, value, unit, dotColor) {
   ctx.fillText(unit, x + 18, y + 74);
 }
 
-function generatePageReportCanvas(page, price, displayTitle) {
+function generatePageReportCanvas(page, price, displayTitle, badgeText) {
   const totalGreen = page.green;
   const totalRed = page.red;
   const totalAll = totalGreen + totalRed;
@@ -1353,8 +1379,8 @@ function generatePageReportCanvas(page, price, displayTitle) {
 
   let detectionY = null;
   if (detectionLabel) {
-    detectionY = y - 6;
-    y += 16;
+    detectionY = y + 6;
+    y += 22;
   }
 
   const priceLineY = y + 15;
@@ -1366,7 +1392,7 @@ function generatePageReportCanvas(page, price, displayTitle) {
   const tilesY = y;
   y += tileH + 24;
 
-  const costBoxH = 130;
+  const costBoxH = 108;
   const costBoxY = y;
   y += costBoxH + 14;
 
@@ -1385,15 +1411,33 @@ function generatePageReportCanvas(page, price, displayTitle) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, contentWidth, totalHeight);
 
+  let badgeW = 0;
+  if (badgeText) {
+    ctx.font = `500 12px ${REPORT_FONT}`;
+    badgeW = ctx.measureText(badgeText).width + 20;
+    const badgeH = 24;
+    const badgeX = contentWidth - pad - badgeW;
+    const badgeY = titleY - 17;
+    roundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+    ctx.fillStyle = '#f0f0f2';
+    ctx.fill();
+    ctx.fillStyle = '#6e6e73';
+    ctx.textAlign = 'center';
+    ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + 16);
+    badgeW += 12; // keep a gap between the title and the badge
+  }
+
   ctx.textAlign = 'left';
   ctx.fillStyle = '#1d1d1f';
   ctx.font = `600 20px ${REPORT_FONT}`;
-  ctx.fillText(displayTitle, pad, titleY);
+  ctx.fillText(ellipsizeText(ctx, displayTitle, innerWidth - badgeW), pad, titleY);
 
   if (detectionLabel) {
     ctx.fillStyle = '#8a8a8f';
     ctx.font = `400 12px ${REPORT_FONT}`;
-    ctx.fillText(detectionLabel, pad, detectionY);
+    ctx.textAlign = 'center';
+    ctx.fillText(detectionLabel, contentWidth / 2, detectionY);
+    ctx.textAlign = 'left';
   }
 
   ctx.fillStyle = '#1d1d1f';
@@ -1410,15 +1454,15 @@ function generatePageReportCanvas(page, price, displayTitle) {
   ctx.fill();
 
   drawLabelWithAsterisk(
-    ctx, 'СТОИМОСТЬ ШТАНЦФОРМЫ', bx + bw / 2, by + 36,
+    ctx, 'СТОИМОСТЬ ШТАНЦФОРМЫ', bx + bw / 2, by + 30,
     `600 13px ${REPORT_FONT}`, `600 9px ${REPORT_FONT}`,
     'rgba(255,255,255,0.65)', 'rgba(255,255,255,0.55)'
   );
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#ffffff';
-  ctx.font = `300 44px ${REPORT_FONT}`;
-  ctx.fillText(`${totalCost} грн.`, bx + bw / 2, by + 86);
+  ctx.font = `300 38px ${REPORT_FONT}`;
+  ctx.fillText(`${totalCost} грн.`, bx + bw / 2, by + 76);
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#b0b0b6';

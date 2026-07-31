@@ -302,6 +302,30 @@ body {
   margin-bottom: 2px;
 }
 
+/* Page badge — which page of a multi-page file this block covers.
+   Absolutely positioned so it stays out of the title/detection-label flow. */
+
+.page-report-card {
+  position: relative;
+}
+
+.page-badge {
+  position: absolute;
+  top: 30px;
+  right: 32px;
+  background: #f0f0f2;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 980px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+
+.page-report-card:has(.page-badge) .results-file-title {
+  padding-right: 110px;
+}
+
 .price-row {
   display: flex;
   align-items: center;
@@ -405,11 +429,11 @@ body {
 .cost-hero {
   background: #242428;
   border-radius: var(--radius-md);
-  padding: 32px;
+  padding: 22px 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   text-align: center;
   margin-bottom: 28px;
 }
@@ -429,14 +453,14 @@ body {
 }
 
 .cost-value {
-  font-size: 48px;
+  font-size: 40px;
   font-weight: 300;
   color: #fff;
   letter-spacing: -0.02em;
 }
 
 .cost-unit {
-  font-size: 22px;
+  font-size: 20px;
   color: rgba(255,255,255,0.75);
   font-weight: 400;
 }
