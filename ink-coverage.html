@@ -287,6 +287,12 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
       </div>
 
       <div class="field">
+        <label>Наложение (overprint)</label>
+        <label class="check"><input type="checkbox" id="overprintToggle" checked>
+          <span>Учитывать краску под объектами с наложением</span></label>
+      </div>
+
+      <div class="field">
         <label for="whiteTh">Порог «есть краска», %</label>
         <input type="number" id="whiteTh" value="3" min="0" max="20" step="0.5">
         <span class="hint">Точка меньше этой на печати всё равно не держится. Влияет только на «площадь с краской» и на долю чистой бумаги, но не на сам процент покрытия.</span>
@@ -814,7 +820,10 @@ async function findSpotColors(bytes) {
       });
     }
   }
-  return { spots: [...spots.values()], deviceN: [...deviceNNames], failed: false, docInfo };
+  return {
+    spots: [...spots.values()], deviceN: [...deviceNNames], failed: false, docInfo,
+    overprintStates: findOverprintStates(index),
+  };
 }
 
 /* -------------------------------------------------------------------------
@@ -856,33 +865,92 @@ function buildProbeDoc(bytes, docInfo, probeSpots) {
   // Каталог переопределяется так, чтобы в документе осталась только служебная
   // страница: сам макет мы разбираем по исходному файлу, а здесь нужен лишь
   // доступ к объектам краски — они остаются на своих местах.
-  const objs = [
+  const data = appendIncrementalUpdate(bytes, docInfo, [
     [rootNum, `<< /Type /Catalog /Pages ${pagesNum} 0 R >>`],
     [pagesNum, `<< /Type /Pages /Kids [${pageNum} 0 R] /Count 1 >>`],
     [pageNum, `<< /Type /Page /Parent ${pagesNum} 0 R /MediaBox [0 0 ${pageW} ${pageH}] ` +
       `/Resources << /ColorSpace << ${csEntries} >> >> /Contents ${contentNum} 0 R >>`],
     [contentNum, `<< /Length ${content.length} >>\nstream\n${content}endstream`],
-  ];
+  ]);
+  return data ? { data, pageW, pageH } : null;
+}
 
+/**
+ * Дописывает к файлу инкрементальное обновление с новыми версиями объектов.
+ * Исходные байты не трогаются, поэтому все ссылки внутри документа остаются
+ * рабочими, а переопределённые объекты перекрывают прежние.
+ */
+function appendIncrementalUpdate(bytes, docInfo, objects) {
+  if (!docInfo || docInfo.encrypted || !docInfo.root || !docInfo.prevStartXref) return null;
+  if (!objects.length) return null;
+
+  const sorted = [...objects].sort((a, b) => a[0] - b[0]);
   let update = '\n';
   const offsets = new Map();
-  for (const [num, body] of objs) {
+  for (const [num, body] of sorted) {
     offsets.set(num, bytes.length + update.length);
     update += `${num} 0 obj\n${body}\nendobj\n`;
   }
 
+  // Таблица xref: номера группируются в подряд идущие блоки.
   const xrefPos = bytes.length + update.length;
   const entry = (off) => String(off).padStart(10, '0') + ' 00000 n \n'; // ровно 20 байт
   update += 'xref\n';
-  update += `${rootNum} 1\n` + entry(offsets.get(rootNum));
-  update += `${pagesNum} 3\n` + entry(offsets.get(pagesNum)) + entry(offsets.get(pageNum)) + entry(offsets.get(contentNum));
-  update += `trailer\n<< /Size ${contentNum + 1} /Root ${rootNum} 0 R /Prev ${docInfo.prevStartXref} >>\n` +
-            `startxref\n${xrefPos}\n%%EOF\n`;
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    update += `${run[0]} ${run.length}\n` + run.map((n) => entry(offsets.get(n))).join('');
+    run = [];
+  };
+  for (const [num] of sorted) {
+    if (run.length && num !== run[run.length - 1] + 1) flush();
+    run.push(num);
+  }
+  flush();
+
+  const maxNum = sorted[sorted.length - 1][0];
+  update += `trailer\n<< /Size ${Math.max(maxNum + 1, docInfo.maxObj + 1)} /Root ${docInfo.root} 0 R ` +
+            `/Prev ${docInfo.prevStartXref} >>\nstartxref\n${xrefPos}\n%%EOF\n`;
 
   const out = new Uint8Array(bytes.length + update.length);
   out.set(bytes, 0);
   for (let i = 0; i < update.length; i++) out[bytes.length + i] = update.charCodeAt(i) & 0xff;
-  return { data: out, pageW, pageH };
+  return out;
+}
+
+/* -------------------------------------------------------------------------
+   Наложение (overprint).
+
+   pdf.js наложение не эмулирует: объект с оверпринтом кладётся непрозрачно и
+   закрывает то, что под ним, — краска подложки в растре пропадает. Чтобы её
+   увидеть, страница рисуется второй раз по копии файла, где у состояний с
+   наложением выставлена нулевая непрозрачность: сами объекты не рисуются, и
+   видно ровно то, что под ними. Дальше два растра сводятся по правилу OPM 1 —
+   каналы, которых в верхнем объекте нет, берутся из подложки.
+   ------------------------------------------------------------------------- */
+
+function findOverprintStates(index) {
+  const states = [];
+  for (const [num, body] of index) {
+    if (!/\/Type\s*\/ExtGState/.test(body)) continue;
+    if (!/\/OP\s+true/.test(body) && !/\/op\s+true/.test(body)) continue;
+    const from = body.indexOf('<<'), to = body.lastIndexOf('>>');
+    if (from < 0 || to < from) continue;
+    const opm = body.match(/\/OPM\s+(\d)/);
+    states.push({ num: +num, dict: body.slice(from, to + 2), opm: opm ? +opm[1] : 0 });
+  }
+  return states;
+}
+
+function buildOverprintDoc(bytes, docInfo, states) {
+  const objects = states.map((s) => {
+    const dict = s.dict
+      .replace(/\/ca\s+[\d.]+/g, '')
+      .replace(/\/CA\s+[\d.]+/g, '')
+      .replace(/>>\s*$/, ' /ca 0 /CA 0 >>');
+    return [s.num, dict];
+  });
+  return appendIncrementalUpdate(bytes, docInfo, objects);
 }
 
 /** Снимает шкалы; возвращает число красок, для которых замер удался. */
@@ -963,7 +1031,7 @@ async function renderPageTo(page, ctx, viewport) {
 }
 
 /** Растрирует страницу и собирает гистограмму цветов (без привязки к настройкам цвета). */
-async function scanPage(page, dpi) {
+async function scanPage(page, dpi, pageUnderneath) {
   const baseVp = page.getViewport({ scale: 1 });
   let scale = dpi / 72;
   if (baseVp.width * baseVp.height * scale * scale > MAX_PIXELS) {
@@ -980,6 +1048,17 @@ async function scanPage(page, dpi) {
 
   const img = ctx.getImageData(0, 0, w, h).data;
 
+  // Второй растр — та же страница без объектов с наложением.
+  let under = null;
+  if (pageUnderneath) {
+    const c2 = document.createElement('canvas');
+    c2.width = w; c2.height = h;
+    const ctx2 = c2.getContext('2d', { willReadFrequently: true });
+    await renderPageTo(pageUnderneath, ctx2, pageUnderneath.getViewport({ scale }));
+    under = ctx2.getImageData(0, 0, w, h).data;
+    c2.width = c2.height = 0;
+  }
+
   const counts = new Uint32Array(BUCKETS);
   const sumR = new Float64Array(BUCKETS);
   const sumG = new Float64Array(BUCKETS);
@@ -989,10 +1068,42 @@ async function scanPage(page, dpi) {
   // Габарит «непустой» области — для базы «по запечатанной области».
   let minX = w, minY = h, maxX = -1, maxY = -1;
 
+  // Пиксели, где два растра различаются, копятся парами «верх + подложка».
+  const pairIndex = new Map();
+  const pairKeys = [], pairCount = [], pairSum = [];
+
   for (let yPix = 0, p = 0; yPix < h; yPix++) {
     for (let xPix = 0; xPix < w; xPix++, p += 4) {
       const r = img[p], g = img[p + 1], b = img[p + 2];
       const idx = ((r >> shift) << (BUCKET_BITS * 2)) | ((g >> shift) << BUCKET_BITS) | (b >> shift);
+
+      if (under) {
+        const r2 = under[p], g2 = under[p + 1], b2 = under[p + 2];
+        // Небольшая разница — это сглаживание краёв, а не наложение.
+        if (Math.abs(r - r2) + Math.abs(g - g2) + Math.abs(b - b2) > 12) {
+          const idx2 = ((r2 >> shift) << (BUCKET_BITS * 2)) | ((g2 >> shift) << BUCKET_BITS) | (b2 >> shift);
+          const key = idx * BUCKETS + idx2;
+          let pi = pairIndex.get(key);
+          if (pi === undefined) {
+            pi = pairKeys.length;
+            pairIndex.set(key, pi);
+            pairKeys.push(key);
+            pairCount.push(0);
+            pairSum.push([0, 0, 0, 0, 0, 0]);
+          }
+          pairCount[pi]++;
+          const s = pairSum[pi];
+          s[0] += r; s[1] += g; s[2] += b; s[3] += r2; s[4] += g2; s[5] += b2;
+          if (r < 250 || g < 250 || b < 250 || r2 < 250 || g2 < 250 || b2 < 250) {
+            if (xPix < minX) minX = xPix;
+            if (xPix > maxX) maxX = xPix;
+            if (yPix < minY) minY = yPix;
+            if (yPix > maxY) maxY = yPix;
+          }
+          continue;
+        }
+      }
+
       counts[idx]++;
       sumR[idx] += r; sumG[idx] += g; sumB[idx] += b;
       if (r < 250 || g < 250 || b < 250) {
@@ -1032,9 +1143,23 @@ async function scanPage(page, dpi) {
 
   canvas.width = canvas.height = 0; // отпускаем память
 
+  // Пары в компактном виде: средние цвета верха и подложки.
+  const pn = pairKeys.length;
+  const pairs = pn ? {
+    count: new Float64Array(pn),
+    top: new Float64Array(pn * 3),
+    under: new Float64Array(pn * 3),
+  } : null;
+  for (let i = 0; i < pn; i++) {
+    const c = pairCount[i], s = pairSum[i];
+    pairs.count[i] = c;
+    pairs.top[i * 3] = s[0] / c; pairs.top[i * 3 + 1] = s[1] / c; pairs.top[i * 3 + 2] = s[2] / c;
+    pairs.under[i * 3] = s[3] / c; pairs.under[i * 3 + 1] = s[4] / c; pairs.under[i * 3 + 2] = s[5] / c;
+  }
+
   const pxMm = (baseVp.width * PT_TO_MM) / w;
   return {
-    widthPx: w, heightPx: h,
+    widthPx: w, heightPx: h, pairs,
     widthMm: baseVp.width * PT_TO_MM,
     heightMm: baseVp.height * PT_TO_MM,
     pxAreaMm2: pxMm * pxMm,
@@ -1109,6 +1234,33 @@ function matchSpot(r, g, b, spotIndex) {
   return best;
 }
 
+/** Краски одного цвета: либо плашка со своим тоном, либо CMYK. */
+function resolveInks(r, g, b, gcr, spotIndex) {
+  const hit = matchSpot(r, g, b, spotIndex);
+  if (hit && hit.tint > 0) return { cmyk: [0, 0, 0, 0], spots: [hit] };
+  return { cmyk: rgbToCmyk(r, g, b, gcr), spots: [] };
+}
+
+// Ниже этого канал считается непокрашенным и пропускает подложку (правило OPM 1).
+const OVERPRINT_EPS = 0.02;
+
+/**
+ * Сведение верхнего объекта с подложкой по правилу наложения OPM 1: краска,
+ * которой в верхнем объекте нет, проходит снизу; там, где верхний объект
+ * красит, он замещает подложку.
+ */
+function mergeOverprint(top, under) {
+  const cmyk = [0, 0, 0, 0];
+  for (let ch = 0; ch < 4; ch++) {
+    cmyk[ch] = top.cmyk[ch] >= OVERPRINT_EPS ? top.cmyk[ch] : under.cmyk[ch];
+  }
+  const spots = [...top.spots];
+  for (const hit of under.spots) {
+    if (!spots.some((s) => s.spot.name === hit.spot.name)) spots.push(hit);
+  }
+  return { cmyk, spots };
+}
+
 function computeStats(scan, settings, spotIndex) {
   const { bCount, bR, bG, bB } = scan;
   const n = bCount.length;
@@ -1123,32 +1275,66 @@ function computeStats(scan, settings, spotIndex) {
 
   const tacLimit = settings.tacLimit / 100;
 
-  for (let i = 0; i < n; i++) {
-    const cnt = bCount[i], r = bR[i], g = bG[i], b = bB[i];
-    let cmyk = null;
-    const spotHit = matchSpot(r, g, b, spotIndex);
-
-    if (spotHit && spotHit.tint > 0) {
-      const rec = spotSums.get(spotHit.spot.name) || { sum: 0, pixels: 0, spot: spotHit.spot };
-      rec.sum += spotHit.tint * cnt;
-      if (spotHit.tint >= inkTh) rec.pixels += cnt;
-      spotSums.set(spotHit.spot.name, rec);
-      if (spotHit.tint >= inkTh) { printedPixels += cnt; tacSum += spotHit.tint * cnt; }
-      if (spotHit.tint > tacMax) tacMax = spotHit.tint;
-      colorRows.push({ cnt, r, g, b, cmyk: null, spot: spotHit.spot.name, tint: spotHit.tint });
-      continue;
-    }
-    cmyk = rgbToCmyk(r, g, b, gcr);
-    const tac = cmyk[0] + cmyk[1] + cmyk[2] + cmyk[3];
+  /** Учитывает готовый набор красок пикселя (доли 0..1 + список плашек). */
+  const account = (cnt, cmyk, spotList, row) => {
+    let tac = 0;
     for (let ch = 0; ch < 4; ch++) {
       sums[ch] += cmyk[ch] * cnt;
       if (cmyk[ch] >= inkTh) areaPixels[ch] += cnt;
+      tac += cmyk[ch];
+    }
+    for (const hit of spotList) {
+      const rec = spotSums.get(hit.spot.name) || { sum: 0, pixels: 0, spot: hit.spot };
+      rec.sum += hit.tint * cnt;
+      if (hit.tint >= inkTh) rec.pixels += cnt;
+      spotSums.set(hit.spot.name, rec);
+      tac += hit.tint;
     }
     if (tac >= inkTh) printedPixels += cnt;
     tacSum += tac * cnt;
     if (tac > tacMax) tacMax = tac;
     if (tac > tacLimit) overLimitPixels += cnt;
-    colorRows.push({ cnt, r, g, b, cmyk, spot: null, tint: 0 });
+    colorRows.push(row);
+  };
+
+  for (let i = 0; i < n; i++) {
+    const cnt = bCount[i], r = bR[i], g = bG[i], b = bB[i];
+    const ink = resolveInks(r, g, b, gcr, spotIndex);
+    account(cnt, ink.cmyk, ink.spots, {
+      cnt, r, g, b,
+      cmyk: ink.spots.length ? null : ink.cmyk,
+      spot: ink.spots.length ? ink.spots[0].spot.name : null,
+      tint: ink.spots.length ? ink.spots[0].tint : 0,
+    });
+  }
+
+  // Наложение: к верхнему объекту добавляются краски подложки, которых в нём нет.
+  const pairs = settings.useOverprint ? scan.pairs : null;
+  if (pairs) {
+    for (let i = 0; i < pairs.count.length; i++) {
+      const cnt = pairs.count[i];
+      const top = resolveInks(pairs.top[i * 3], pairs.top[i * 3 + 1], pairs.top[i * 3 + 2], gcr, spotIndex);
+      const under = resolveInks(pairs.under[i * 3], pairs.under[i * 3 + 1], pairs.under[i * 3 + 2], gcr, spotIndex);
+      const merged = mergeOverprint(top, under);
+      account(cnt, merged.cmyk, merged.spots, {
+        cnt, r: pairs.top[i * 3], g: pairs.top[i * 3 + 1], b: pairs.top[i * 3 + 2],
+        cmyk: merged.cmyk, spot: merged.spots.length ? merged.spots[0].spot.name : null,
+        tint: merged.spots.length ? merged.spots[0].tint : 0,
+      });
+    }
+  } else if (scan.pairs) {
+    // Коррекция выключена — считаем только то, что видно.
+    for (let i = 0; i < scan.pairs.count.length; i++) {
+      const cnt = scan.pairs.count[i];
+      const r = scan.pairs.top[i * 3], g = scan.pairs.top[i * 3 + 1], b = scan.pairs.top[i * 3 + 2];
+      const ink = resolveInks(r, g, b, gcr, spotIndex);
+      account(cnt, ink.cmyk, ink.spots, {
+        cnt, r, g, b,
+        cmyk: ink.spots.length ? null : ink.cmyk,
+        spot: ink.spots.length ? ink.spots[0].spot.name : null,
+        tint: ink.spots.length ? ink.spots[0].tint : 0,
+      });
+    }
   }
 
   // База для 100 %.
@@ -1242,6 +1428,7 @@ function readSettings() {
     spotInkWeight: +el('spotInkWeight').value,
     copies: +el('copies').value,
     useSpots: el('spotToggle').checked,
+    useOverprint: el('overprintToggle').checked,
     whiteThreshold: +el('whiteTh').value / 100,
   };
 }
@@ -1334,6 +1521,23 @@ async function handleFile(file) {
     state.probedCount = 0;
   }
 
+  // Копия документа, где объекты с наложением не рисуются, — из неё берётся
+  // краска, спрятанная под оверпринтом.
+  state.overprintStates = spotInfo.overprintStates || [];
+  let underDoc = null;
+  if (state.overprintStates.length) {
+    showProgress('Подготовка второго растра для наложения…');
+    await new Promise((r) => setTimeout(r, 0));
+    try {
+      const data = buildOverprintDoc(buffer, spotInfo.docInfo, state.overprintStates);
+      if (data) underDoc = await pdfjsLib.getDocument({ data, stopAtErrors: false }).promise;
+    } catch (e) {
+      console.warn('overprint doc failed', e);
+      underDoc = null;
+    }
+  }
+  state.overprintApplied = !!underDoc;
+
   const settings = readSettings();
   state.dpi = settings.dpi;
   state.scans = [];
@@ -1343,7 +1547,12 @@ async function handleFile(file) {
       showProgress(`Растрирование страницы ${i} из ${pdfDoc.numPages} при ${settings.dpi} dpi…`);
       await new Promise((r) => setTimeout(r, 0));
       const page = await pdfDoc.getPage(i);
-      state.scans.push(await scanPage(page, settings.dpi));
+      let pageUnder = null;
+      if (underDoc && underDoc.numPages >= i) {
+        try { pageUnder = await underDoc.getPage(i); } catch (e) { pageUnder = null; }
+      }
+      state.scans.push(await scanPage(page, settings.dpi, pageUnder));
+      if (pageUnder) pageUnder.cleanup();
       page.cleanup();
     }
   } catch (e) {
@@ -1351,6 +1560,8 @@ async function handleFile(file) {
     showError('Ошибка при растрировании страницы: ' + e.message);
     return;
   }
+
+  if (underDoc) { try { await underDoc.destroy(); } catch (e) {} }
 
   fileInfo.textContent = `${file.name} · ${formatSize(file.size)} · страниц: ${pdfDoc.numPages}`;
   fileInfo.classList.remove('hidden');
@@ -1391,6 +1602,24 @@ function renderNotices(settings) {
       items.push(`Не удалось разобрать тоновую кривую для: ${noRamp.map((s) => escapeHtml(s.name)).join(', ')} — эти краски попадут в CMYK как цветовой эквивалент.`);
     }
     if (!settings.useSpots) items.push('Разделение плашек выключено — они учтены как CMYK‑эквивалент.');
+  }
+  const opCount = (state.overprintStates || []).length;
+  if (opCount) {
+    const pairPixels = state.scans.reduce((s, sc) => s + (sc.pairs ? sc.pairs.count.reduce((a, b) => a + b, 0) : 0), 0);
+    const totalPixels = state.scans.reduce((s, sc) => s + sc.totalPixels, 0);
+    const share = totalPixels ? (pairPixels / totalPixels * 100) : 0;
+    if (!state.overprintApplied) {
+      items.push(`Наложение (overprint) в файле есть (${opCount} ${opCount === 1 ? 'состояние' : 'состояний'}), ` +
+        'но подготовить второй растр не удалось — краска под наложением не учтена, значения занижены.');
+    } else if (!settings.useOverprint) {
+      items.push(`Наложение (overprint) найдено, но учёт выключен — краска под наложением не считается.`);
+    } else if (share < 0.01) {
+      items.push(`Наложение (overprint) объявлено (${opCount} ${opCount === 1 ? 'состояние' : 'состояний'}), ` +
+        'но объекты с ним ничего не перекрывают — на расчёт не влияет.');
+    } else {
+      items.push(`Наложение (overprint) учтено: на ${fmt(share, 1)} % площади под верхней краской найдена ещё одна — ` +
+        'она добавлена в свои каналы.');
+    }
   }
   if (state.deviceN.length) {
     items.push(`Составные краски DeviceN: ${state.deviceN.map(escapeHtml).join(', ')} — их тон отдельно не рассчитывается.`);
@@ -1557,12 +1786,22 @@ function buildAccuracyCard(settings) {
     читаем настоящие цвета. Поэтому работают и Lab, и ICC, и табличные функции перехода — а именно через Lab
     Illustrator и пишет современные библиотеки PANTONE. Пиксели, совпавшие со шкалой, считаются отдельным каналом
     с их процентом тона и исключаются из CMYK.</p>
+    <p><b>Наложение (overprint).</b> pdf.js его не эмулирует: объект с наложением кладётся непрозрачно и закрывает
+    подложку, поэтому краска под ним из растра пропадает. Чтобы её увидеть, страница растрируется второй раз — по
+    копии файла, где состояниям с наложением выставлена нулевая непрозрачность, то есть сами эти объекты не
+    рисуются. Там, где два растра разошлись, краски складываются по правилу OPM 1: канал, которого в верхнем
+    объекте нет, берётся из подложки; где верхний объект красит — он замещает её.</p>
     <p><b>Ограничения:</b></p>
     <ul>
       <li>Разделение чёрного и CMY (GCR) в файле однозначно не восстановимо — сейчас ${Math.round(settings.gcr * 100)} %.
         Для файлов с богатым чёрным поставьте GCR ниже.</li>
-      <li>Overprint (наложение) считается по видимому результату: pdf.js применяет наложение не всегда так,
-        как RIP печатной машины.</li>
+      <li>Если наложение задано одним состоянием, а прозрачность — другим, погасить объект не удастся: тогда
+        коррекция просто не сработает и краска под ним не добавится. Лишней краски при этом не появится —
+        второй растр не может показать больше, чем нарисовано.</li>
+      <li>Несколько объектов с наложением друг на друге сводятся к двум слоям: верхний видимый и то, что лежит
+        под всеми ними; промежуточные не учитываются.</li>
+      <li>Режим OPM 0 (все каналы источника замещают подложку) отдельно не разбирается — считается по правилу
+        OPM 1, как пишут Illustrator и InDesign.</li>
       <li>Очень тёмные и внегамутные цвета обрезаются по 0/255 при растрировании — часть информации теряется.</li>
       <li>Белая краска и лаки на белом фоне не видны и не считаются.</li>
       <li>Самые светлые тона плашек (примерно до 3 % для тёмных красок) от бумаги в растре неотличимы —
