@@ -1049,14 +1049,13 @@ async function scanPage(page, dpi, pageUnderneath) {
   const img = ctx.getImageData(0, 0, w, h).data;
 
   // Второй растр — та же страница без объектов с наложением.
-  let under = null;
+  let under = null, underCanvas = null;
   if (pageUnderneath) {
-    const c2 = document.createElement('canvas');
-    c2.width = w; c2.height = h;
-    const ctx2 = c2.getContext('2d', { willReadFrequently: true });
+    underCanvas = document.createElement('canvas');
+    underCanvas.width = w; underCanvas.height = h;
+    const ctx2 = underCanvas.getContext('2d', { willReadFrequently: true });
     await renderPageTo(pageUnderneath, ctx2, pageUnderneath.getViewport({ scale }));
     under = ctx2.getImageData(0, 0, w, h).data;
-    c2.width = c2.height = 0;
   }
 
   const counts = new Uint32Array(BUCKETS);
@@ -1141,6 +1140,16 @@ async function scanPage(page, dpi, pageUnderneath) {
   pctx.drawImage(canvas, 0, 0, pw, ph);
   const previewData = pctx.getImageData(0, 0, pw, ph);
 
+  // Уменьшенная копия второго растра — по ней сепарации-миниатюры показывают
+  // краску, спрятанную под наложением.
+  let previewUnderData = null;
+  if (underCanvas) {
+    pctx.fillStyle = '#fff'; pctx.fillRect(0, 0, pw, ph);
+    pctx.drawImage(underCanvas, 0, 0, pw, ph);
+    previewUnderData = pctx.getImageData(0, 0, pw, ph);
+    underCanvas.width = underCanvas.height = 0;
+  }
+
   canvas.width = canvas.height = 0; // отпускаем память
 
   // Пары в компактном виде: средние цвета верха и подложки.
@@ -1169,7 +1178,7 @@ async function scanPage(page, dpi, pageUnderneath) {
       wMm: (maxX - minX + 1) * pxMm,
       hMm: (maxY - minY + 1) * pxMm,
     },
-    previewData,
+    previewData, previewUnderData,
   };
 }
 
@@ -1498,6 +1507,7 @@ async function handleFile(file) {
     // Документ остаётся открытым и после разбора: по клику на превью страница
     // дорисовывается в высоком разрешении.
     if (state.pdfDoc) { try { await state.pdfDoc.destroy(); } catch (e2) {} state.pdfDoc = null; }
+    if (state.underDoc) { try { await state.underDoc.destroy(); } catch (e2) {} state.underDoc = null; }
     pdfDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
     state.pdfDoc = pdfDoc;
   } catch (e) {
@@ -1561,7 +1571,9 @@ async function handleFile(file) {
     return;
   }
 
-  if (underDoc) { try { await underDoc.destroy(); } catch (e) {} }
+  // Второй документ остаётся открытым: он нужен, когда сепарацию с наложением
+  // открывают крупно и её приходится растрировать заново.
+  state.underDoc = underDoc;
 
   fileInfo.textContent = `${file.name} · ${formatSize(file.size)} · страниц: ${pdfDoc.numPages}`;
   fileInfo.classList.remove('hidden');
@@ -2178,19 +2190,38 @@ async function renderHiRes(pageIndex, cssWidth, spec) {
   page.cleanup();
 
   if (spec) {
+    const settings = readSettings();
+    // Для сепарации нужен и второй растр — иначе краска под наложением
+    // на крупном просмотре пропадёт, хотя в цифрах она есть.
+    let underData = null;
+    if (settings.useOverprint && state.underDoc && state.underDoc.numPages > pageIndex) {
+      try {
+        const pageUnder = await state.underDoc.getPage(pageIndex + 1);
+        const c2 = document.createElement('canvas');
+        c2.width = w; c2.height = h;
+        const ctx2 = c2.getContext('2d', { willReadFrequently: true });
+        await renderPageTo(pageUnder, ctx2, pageUnder.getViewport({ scale: targetPx / vp1.width }));
+        underData = ctx2.getImageData(0, 0, w, h).data;
+        c2.width = c2.height = 0;
+        pageUnder.cleanup();
+      } catch (e) {
+        console.warn('overprint hi-res failed', e);
+      }
+    }
     const img = ctx.getImageData(0, 0, w, h);
-    separationFromImage(img, spec, readSettings().gcr);
+    separationFromImage(img, spec, settings.gcr, underData);
     ctx.putImageData(img, 0, 0);
   }
   return canvas;
 }
 
-/** Доля одной краски в цвете: spec — {type:'cmyk', ch} либо {type:'spot', name}. */
-function inkValueFor(r, g, b, gcr, spec) {
-  const hit = matchSpot(r, g, b, state.spotIndex);
-  if (spec.type === 'spot') return hit && hit.spot.name === spec.name ? hit.tint : 0;
-  if (hit) return 0; // пиксель отдан плашке и в CMYK не учитывается
-  return rgbToCmyk(r, g, b, gcr)[spec.ch];
+/** Доля одной краски в уже разобранном наборе: {type:'cmyk', ch} либо {type:'spot', name}. */
+function inkValueFrom(inks, spec) {
+  if (spec.type === 'spot') {
+    const hit = inks.spots.find((s) => s.spot.name === spec.name);
+    return hit ? hit.tint : 0;
+  }
+  return inks.cmyk[spec.ch];
 }
 
 /**
@@ -2202,16 +2233,34 @@ function quantizeChannel(v) {
   return v >= 253 ? 255 : ((v + 2) & 0xfc); // маска 8-битная: 257 & 0xfc даёт 0, а не 256
 }
 
-/** Превращает RGB-растр в градации серого по одной краске (на месте). */
-function separationFromImage(img, spec, gcr) {
+/**
+ * Превращает RGB-растр в градации серого по одной краске (на месте).
+ * underData — растр без объектов с наложением; там, где он отличается,
+ * краски сводятся так же, как в расчёте, иначе сепарации показывали бы не то,
+ * что стоит в цифрах.
+ */
+function separationFromImage(img, spec, gcr, underData) {
   const d = img.data;
   const cache = new Map();
   for (let p = 0; p < d.length; p += 4) {
     const r = quantizeChannel(d[p]), g = quantizeChannel(d[p + 1]), b = quantizeChannel(d[p + 2]);
-    const key = (r << 16) | (g << 8) | b;
+    let key = (r << 16) | (g << 8) | b;
+    let r2 = 0, g2 = 0, b2 = 0, merged = false;
+
+    if (underData) {
+      const ur = underData[p], ug = underData[p + 1], ub = underData[p + 2];
+      if (Math.abs(d[p] - ur) + Math.abs(d[p + 1] - ug) + Math.abs(d[p + 2] - ub) > 12) {
+        r2 = quantizeChannel(ur); g2 = quantizeChannel(ug); b2 = quantizeChannel(ub);
+        key = key * 16777216 + ((r2 << 16) | (g2 << 8) | b2);
+        merged = true;
+      }
+    }
+
     let v = cache.get(key);
     if (v === undefined) {
-      v = 255 - Math.round(inkValueFor(r, g, b, gcr, spec) * 255);
+      const top = resolveInks(r, g, b, gcr, state.spotIndex);
+      const inks = merged ? mergeOverprint(top, resolveInks(r2, g2, b2, gcr, state.spotIndex)) : top;
+      v = 255 - Math.round(inkValueFrom(inks, spec) * 255);
       cache.set(key, v);
     }
     d[p] = v; d[p + 1] = v; d[p + 2] = v; d[p + 3] = 255;
@@ -2229,7 +2278,8 @@ function drawPreviewInto(canvas, scan, spec, settings) {
   }
   const img = ctx.createImageData(src.width, src.height);
   img.data.set(src.data);
-  separationFromImage(img, spec, settings.gcr);
+  const under = settings.useOverprint && scan.previewUnderData ? scan.previewUnderData.data : null;
+  separationFromImage(img, spec, settings.gcr, under);
   ctx.putImageData(img, 0, 0);
 }
 
