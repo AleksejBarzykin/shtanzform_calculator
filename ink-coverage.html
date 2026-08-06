@@ -420,6 +420,16 @@ function residualNorm(c, m, y, k, target) {
   return Math.sqrt(s);
 }
 
+/** Наибольшее расхождение по одному каналу, в единицах RGB. */
+function maxChannelError(c, m, y, k, target) {
+  let e = 0;
+  for (let ch = 0; ch < 3; ch++) {
+    const r = channelResidual(ch, c, m, y, k, target);
+    if (r !== null) e = Math.max(e, Math.abs(r));
+  }
+  return e;
+}
+
 // Слабый штраф за лишнюю краску: только чтобы разрешать полные ничьи в
 // «плоских» зонах (глубокие тени, где растр почти не меняется).
 const INK_PENALTY = 0.05;
@@ -429,7 +439,7 @@ const INK_PENALTY = 0.05;
  * (Левенберга–Марквардта) по аналитическому якобиану полинома pdf.js.
  * Возвращает [c, m, y, невязка].
  */
-function solveCmyAt(k, target, seed, lock) {
+function solveCmyAt(k, target, seed, locks) {
   const d = Math.max(1 - k, 0.05);
   let c, m, y;
   if (seed) {
@@ -439,7 +449,11 @@ function solveCmyAt(k, target, seed, lock) {
     m = clamp01((1 - target[1] / 255 - k) / d);
     y = clamp01((1 - target[2] / 255 - k) / d);
   }
-  if (lock === 0) c = 0; else if (lock === 1) m = 0; else if (lock === 2) y = 0;
+  if (locks) {
+    if (locks.indexOf(0) >= 0) c = 0;
+    if (locks.indexOf(1) >= 0) m = 0;
+    if (locks.indexOf(2) >= 0) y = 0;
+  }
   let err = residualNorm(c, m, y, k, target);
 
   const res = [0, 0, 0];
@@ -453,7 +467,7 @@ function solveCmyAt(k, target, seed, lock) {
       J[ch][0] = 2 * P[0] * c + P[1] * m + P[2] * y + P[3] * k + P[4];
       J[ch][1] = P[1] * c + 2 * P[5] * m + P[6] * y + P[7] * k + P[8];
       J[ch][2] = P[2] * c + P[6] * m + 2 * P[9] * y + P[10] * k + P[11];
-      if (lock !== undefined && lock >= 0) J[ch][lock] = 0;
+        if (locks) for (const L of locks) J[ch][L] = 0;
     }
 
     // Нормальные уравнения (JᵀJ + λI)Δ = Jᵀr — устойчивы, когда часть каналов
@@ -479,7 +493,7 @@ function solveCmyAt(k, target, seed, lock) {
 
     const step = solve3(A, rhs);
     if (!step) break;
-    if (lock !== undefined && lock >= 0) step[lock] = 0;
+    if (locks) for (const L of locks) step[L] = 0;
 
     let scale = 1;
     const maxStep = Math.max(Math.abs(step[0]), Math.abs(step[1]), Math.abs(step[2]));
@@ -522,6 +536,10 @@ function rgbToCmyk(r, g, b, gcr) {
   const err0 = sol[3];
   const tol = err0 + 0.75; // допуск: цвет вне охвата CMYK изначально даёт невязку
 
+  // Порог намеренно грубый: чёрным можно заменить только серую составляющую,
+  // а она — минимум из C, M, Y. Если считать серой составляющей численный шум
+  // в доли процента, он превратится в чёрный там, где его нет: у заливки
+  // «M100+Y100» так набегало 2,5 % чёрного.
   for (let i = 0; i < 8; i++) {
     const gray = Math.min(sol[0], sol[1], sol[2]);
     if (gray < 0.004) break;
@@ -542,21 +560,58 @@ function rgbToCmyk(r, g, b, gcr) {
     break;
   }
 
-  const kUse = k * gcr;
+  let kUse = k * gcr;
   if (Math.abs(kUse - k) > 1e-4) sol = solveCmyAt(kUse, target);
+
+  // Проверка «а не берётся ли цвет одним чёрным». Подъём K идёт по серой
+  // составляющей — минимуму из C, M, Y, — и останавливается, как только любой
+  // из каналов ушёл в ноль. На чистом чёрном жёлтый обнуляется первым, подъём
+  // замирает на 99 %, а недостающий чёрный решатель добирает цианом с
+  // маджентой. Ищем K, при котором цвет воспроизводится без них вовсе.
+  // Порог входа широкий: отсеивает проверку только там, где цвет очевидно не
+  // серый, а решение принимается всё равно по промаху ниже.
+  if (gcr >= 0.999 && sol[0] < 0.15 && sol[1] < 0.15 && sol[2] < 0.15) {
+    let lo = kUse, hi = 1;
+    for (let it = 0; it < 20; it++) {
+      const a = lo + (hi - lo) / 3, b = hi - (hi - lo) / 3;
+      if (maxChannelError(0, 0, 0, a, target) < maxChannelError(0, 0, 0, b, target)) hi = b; else lo = a;
+    }
+    const kPure = (lo + hi) / 2;
+    // Для почти нейтральных цветов допуск шире. Во-первых, при GCR 100 % серое
+    // и есть чистый чёрный по определению. Во-вторых, в превью палитра
+    // огрубляется, и сдвиг в пару единиц уводил серый с чёрной оси — на
+    // миниатюрах проступали циан и жёлтый, которых нет в цифрах.
+    const spread = Math.max(r, g, b) - Math.min(r, g, b);
+    if (maxChannelError(0, 0, 0, kPure, target) <= (spread <= 14 ? 2.5 : 0.5)) {
+      return [0, 0, 0, clamp01(kPure)];
+    }
+  }
 
   // Обрезка «паразитных» примесей. Там, где растр обрезан по 0/255, одному и
   // тому же цвету отвечает целое семейство решений, и метод наименьших
   // квадратов легко выдаёт вместо плашки 100C смесь «89C + 5M». Если краску с
   // малым процентом можно убрать без ухудшения совпадения — убираем.
+  // Растр хранит целые числа, поэтому цель известна лишь с точностью ±0,5.
+  // Среди решений, дающих тот же пиксель, выбираем то, где краски меньше.
+  // Без этого округление чистого чёрного (43,7·46,5·52,5 на холсте становится
+  // 44·46·53) отдаёт 1,6 % циана и 2,2 % мадженты, которых в работе нет.
+  // Допуск ровно в половину кванта: всё, что укладывается в ±0,5, даёт тот же
+  // самый пиксель. Шире брать нельзя — тогда решатель начинает подъедать
+  // сплошные плашки (чистый циан читался как 99,2 %).
+  const errNow = () => maxChannelError(sol[0], sol[1], sol[2], kUse, target);
+  const accept = (s) => maxChannelError(s[0], s[1], s[2], kUse, target) <= Math.max(0.5, errNow());
+
+  const small = [0, 1, 2].filter((i) => sol[i] > 1e-3 && sol[i] < 0.05);
+  if (small.length > 1) {
+    // Поштучно такие примеси убрать не удаётся — каждая по отдельности держит
+    // цвет; убирать надо разом.
+    const s = solveCmyAt(kUse, target, sol, small);
+    if (accept(s)) sol = s;
+  }
   for (let i = 0; i < 3; i++) {
     if (sol[i] < 1e-3 || sol[i] > 0.12) continue;
-    // Для совсем малых примесей допуск шире: расхождение в одну единицу RGB
-    // ни один станок не воспроизведёт, а «2 % мадженты» в сплошном чёрном
-    // попадают в отчёт краской, которой в работе нет.
-    const tol = (sol[i] < 0.03 && kUse > 0.5) ? 1.0 : 0.3;
-    const s = solveCmyAt(kUse, target, sol, i);
-    if (s[3] <= sol[3] + tol) sol = s;
+    const s = solveCmyAt(kUse, target, sol, [i]);
+    if (accept(s)) sol = s;
   }
   return [sol[0], sol[1], sol[2], kUse];
 }
