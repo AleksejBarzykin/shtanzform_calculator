@@ -205,6 +205,22 @@ th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-trans
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);
 }
+
+/* Файлов может быть несколько: у каждого свой блок с параметрами и отчётом. */
+.file-group { display: flex; flex-direction: column; gap: 24px; }
+.file-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+.file-name { font-size: 18px; font-weight: 600; word-break: break-all; }
+.file-index { color: var(--text-secondary); font-weight: 400; margin-right: 6px; }
+.file-remove {
+  border: none; background: #e8e8ed; color: var(--text-secondary); flex: none;
+  width: 30px; height: 30px; border-radius: 50%; font-size: 18px; line-height: 1;
+  cursor: pointer; font-family: inherit; transition: .15s;
+}
+.file-remove:hover { background: var(--error-bg); color: var(--error-text); }
+.settings-title { font-size: 13px; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: .03em; margin: 0 0 14px; }
+.settings-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.order-files { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin: 14px 0 0; padding-left: 18px; }
 .shot-status { font-size: 12px; color: var(--text-secondary); }
 .shot-status.err { color: var(--error-text); }
 
@@ -224,91 +240,99 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
 
   <section class="card">
     <div id="dropzone" class="dropzone">
-      <input type="file" id="fileInput" accept=".pdf,.ai,application/pdf" hidden>
-      <p class="dropzone-text">Перетащите PDF или AI‑файл сюда</p>
-      <p class="dropzone-subtext">или</p>
-      <button type="button" id="browseBtn" class="btn btn-secondary">Выбрать файл</button>
+      <input type="file" id="fileInput" accept=".pdf,.ai,application/pdf" multiple hidden>
+      <p class="dropzone-text">Перетащите PDF или AI‑файлы сюда</p>
+      <p class="dropzone-subtext">можно сразу несколько — по файлу на каждый лист заказа</p>
+      <button type="button" id="browseBtn" class="btn btn-secondary">Выбрать файлы</button>
     </div>
     <div id="fileInfo" class="page-meta hidden" style="margin-top:12px"></div>
     <div id="progress" class="progress hidden"><div class="spinner"></div><span id="progressText">Обработка…</span></div>
     <div id="errorBox" class="error-box hidden"></div>
+    <div id="globalActions" class="card-actions hidden">
+      <button type="button" id="csvBtn" class="btn btn-secondary">Скачать CSV</button>
+    </div>
   </section>
 
-  <section class="card" id="settingsCard">
-    <h2>Параметры расчёта</h2>
-    <div class="settings">
+  <!-- Параметры у каждого файла свои: заготовка клонируется под каждую загруженную
+       работу, а идентификаторы полей получают суффикс, чтобы не столкнуться. -->
+  <template id="settingsTpl">
+    <div class="settings-block">
+      <h3 class="settings-title">Параметры расчёта</h3>
+      <div class="settings">
 
-      <div class="field">
-        <label for="baseSel">База для 100 %</label>
-        <select id="baseSel">
-          <option value="page" selected>Страница / артборд файла</option>
-          <option value="custom">Свой формат листа</option>
-          <option value="bbox">Габарит запечатанной области</option>
-        </select>
-        <div id="customSize" class="field-inline hidden">
-          <input type="number" id="sheetW" value="700" min="1" step="0.1" title="Ширина, мм">
-          <input type="number" id="sheetH" value="500" min="1" step="0.1" title="Высота, мм">
+        <div class="field">
+          <label for="baseSel">База для 100 %</label>
+          <select id="baseSel">
+            <option value="page" selected>Страница / артборд файла</option>
+            <option value="custom">Свой формат листа</option>
+            <option value="bbox">Габарит запечатанной области</option>
+          </select>
+          <div id="customSize" class="field-inline hidden">
+            <input type="number" id="sheetW" value="700" min="1" step="0.1" title="Ширина, мм">
+            <input type="number" id="sheetH" value="500" min="1" step="0.1" title="Высота, мм">
+          </div>
+          <span class="hint">Проценты считаются как площадь краски ÷ площадь базы.</span>
         </div>
-        <span class="hint">Проценты считаются как площадь краски ÷ площадь базы.</span>
-      </div>
 
-      <div class="field">
-        <label for="inkWeight">Расход CMYK, г/м² при 100 %</label>
-        <input type="number" id="inkWeight" value="0.715" min="0" step="0.005">
-        <span class="hint">Норма расхода триадной краски при сплошной заливке.</span>
-      </div>
+        <div class="field">
+          <label for="inkWeight">Расход CMYK, г/м² при 100 %</label>
+          <input type="number" id="inkWeight" value="0.715" min="0" step="0.005">
+          <span class="hint">Норма расхода триадной краски при сплошной заливке.</span>
+        </div>
 
-      <div class="field">
-        <label for="whiteTh">Порог «есть краска», %</label>
-        <input type="number" id="whiteTh" value="3" min="0" max="20" step="0.5">
-        <span class="hint">Точка меньше этой на печати всё равно не держится. Влияет только на «площадь с краской» и на долю чистой бумаги, но не на сам процент покрытия.</span>
-      </div>
+        <div class="field">
+          <label for="whiteTh">Порог «есть краска», %</label>
+          <input type="number" id="whiteTh" value="3" min="0" max="20" step="0.5">
+          <span class="hint">Точка меньше этой на печати всё равно не держится. Влияет только на «площадь с краской» и на долю чистой бумаги, но не на сам процент покрытия.</span>
+        </div>
 
-      <div class="field">
-        <label for="copies">Тираж, листов</label>
-        <input type="number" id="copies" value="1000" min="1" step="1">
-        <span class="hint">Для пересчёта расхода краски на тираж.</span>
-      </div>
+        <div class="field">
+          <label for="copies">Тираж, листов</label>
+          <input type="number" id="copies" value="1000" min="1" step="1">
+          <span class="hint">Для пересчёта расхода краски на тираж.</span>
+        </div>
 
-      <div class="field">
-        <label for="spotInkWeight">Расход Pantone, г/м² при 100 %</label>
-        <input type="number" id="spotInkWeight" value="1.15" min="0" step="0.005">
-        <span class="hint">Плашечные краски кроют плотнее триадных, поэтому норма отдельная.</span>
-      </div>
+        <div class="field">
+          <label for="spotInkWeight">Расход Pantone, г/м² при 100 %</label>
+          <input type="number" id="spotInkWeight" value="1.15" min="0" step="0.005">
+          <span class="hint">Плашечные краски кроют плотнее триадных, поэтому норма отдельная.
+            Исключение — лак: краска, в названии которой есть слово «lak» или «лак», всегда считается по 0,45 г/м².</span>
+        </div>
 
-      <div class="field">
-        <label for="tacLimit">Лимит суммы красок (TAC)</label>
-        <input type="number" id="tacLimit" value="300" min="100" max="400" step="10">
-        <span class="hint">Для отчёта «доля площади с превышением».</span>
-      </div>
+        <div class="field">
+          <label for="tacLimit">Лимит суммы красок (TAC)</label>
+          <input type="number" id="tacLimit" value="300" min="100" max="400" step="10">
+          <span class="hint">Для отчёта «доля площади с превышением».</span>
+        </div>
 
-      <div class="field">
-        <label>Pantone / плашечные</label>
-        <label class="check"><input type="checkbox" id="spotToggle" checked>
-          <span>Выделять плашечные краски в отдельные каналы (по описанию Separation в файле)</span></label>
-      </div>
+        <div class="field">
+          <label>Pantone / плашечные</label>
+          <label class="check"><input type="checkbox" id="spotToggle" checked>
+            <span>Выделять плашечные краски в отдельные каналы (по описанию Separation в файле)</span></label>
+        </div>
 
-      <div class="field">
-        <label for="makeReadyLoss">Потери на приладку, кг на краску</label>
-        <input type="number" id="makeReadyLoss" value="0.1" min="0" step="0.01">
-        <span class="hint">Постоянный расход на раскатку валов и остаток в красочном аппарате. Прибавляется один раз
-          к расходу каждой краски, фактически использованной в тираже, — не зависит от площади и тиража.</span>
-      </div>
+        <div class="field">
+          <label for="makeReadyLoss">Потери на приладку, кг на краску</label>
+          <input type="number" id="makeReadyLoss" value="0.1" min="0" step="0.01">
+          <span class="hint">Постоянный расход на раскатку валов и остаток в красочном аппарате. Прибавляется один раз
+            к расходу каждой краски, фактически использованной в тираже, — не зависит от площади и тиража.</span>
+        </div>
 
-      <div class="field">
-        <label>Наложение (overprint)</label>
-        <label class="check"><input type="checkbox" id="overprintToggle" checked>
-          <span>Учитывать краску под объектами с наложением</span></label>
-      </div>
+        <div class="field">
+          <label>Наложение (overprint)</label>
+          <label class="check"><input type="checkbox" id="overprintToggle" checked>
+            <span>Учитывать краску под объектами с наложением</span></label>
+        </div>
 
+      </div>
+      <div class="settings-actions">
+        <button type="button" class="btn btn-primary" data-act="recalc">Пересчитать</button>
+        <button type="button" class="btn btn-secondary" data-act="apply-all">Применить ко всем файлам</button>
+        <button type="button" class="btn btn-secondary" data-act="reset">Очистить форму</button>
+      </div>
+      <div id="noticeBox" class="notice-box hidden"></div>
     </div>
-    <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap">
-      <button type="button" id="recalcBtn" class="btn btn-primary" disabled>Пересчитать</button>
-      <button type="button" id="csvBtn" class="btn btn-secondary" disabled>Скачать CSV</button>
-      <button type="button" id="resetBtn" class="btn btn-secondary">Очистить форму</button>
-    </div>
-    <div id="noticeBox" class="notice-box hidden"></div>
-  </section>
+  </template>
 
   <section id="results" class="hidden" style="display:flex; flex-direction:column; gap:24px"></section>
 
@@ -402,6 +426,19 @@ function cmykToRgb(c, m, y, k) {
 
 function clamp255(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+// Разброс между каналами, ниже которого цвет считаем серым.
+const NEUTRAL_SPREAD = 14;
+
+/** Светлота самой тёмной нейтрали, доступной CMYK, — это чистый K 100 %. */
+let blackPointMeanCache = null;
+function blackPointMean() {
+  if (blackPointMeanCache === null) {
+    const [r, g, b] = cmykToRgb(0, 0, 0, 1);
+    blackPointMeanCache = (r + g + b) / 3;
+  }
+  return blackPointMeanCache;
+}
 
 /* Растр обрезан по 0..255, и это надо учитывать в двух разных смыслах.
    Если модель уходит за границу, а цель лежит на самой границе — ограничение
@@ -533,6 +570,13 @@ function solveCmyAt(k, target, seed, locks) {
  */
 function rgbToCmyk(r, g, b, gcr) {
   if (r >= 254.5 && g >= 254.5 && b >= 254.5) return [0, 0, 0, 0];
+  // Нейтраль темнее чёрной точки CMYK не воспроизводится триадой вовсе, и
+  // решатель, дотягиваясь до такой глубины, добирает её цветом: чёрный
+  // rgb(6,6,12) читался как «56C + 48M + 26Y + 100K». На печати это чёрный.
+  if (gcr >= 0.999 && Math.max(r, g, b) - Math.min(r, g, b) <= NEUTRAL_SPREAD
+      && (r + g + b) / 3 <= blackPointMean()) {
+    return [0, 0, 0, 1];
+  }
   const target = [r, g, b];
 
   let k = 0;
@@ -586,7 +630,7 @@ function rgbToCmyk(r, g, b, gcr) {
     // огрубляется, и сдвиг в пару единиц уводил серый с чёрной оси — на
     // миниатюрах проступали циан и жёлтый, которых нет в цифрах.
     const spread = Math.max(r, g, b) - Math.min(r, g, b);
-    if (maxChannelError(0, 0, 0, kPure, target) <= (spread <= 14 ? 2.5 : 0.5)) {
+    if (maxChannelError(0, 0, 0, kPure, target) <= (spread <= NEUTRAL_SPREAD ? 2.5 : 0.5)) {
       return [0, 0, 0, clamp01(kPure)];
     }
   }
@@ -1289,7 +1333,10 @@ const SPOT_WHITE_GUARD = 11; // ближе этого к белому тон н�
 
 // Опорные процессные цвета для линий смеси «плашка ↔ заливка»: берутся из
 // самого растра — это самые частые цвета страницы, не лежащие на шкалах плашек.
-const ANCHOR_MIN_SHARE = 0.005; // реже этой доли листа цвет опорным не считаем
+// Доля считается от запечатанной площади, а не от всего листа: на монтаже
+// бумаги под 97 %, и любой порог от листа отсекал бы даже сплошную чёрную
+// плашку — опорных цветов не находилось вовсе.
+const ANCHOR_MIN_SHARE = 0.01;  // реже этой доли краски цвет опорным не считаем
 const ANCHOR_MAX = 4;
 const ANCHOR_MERGE_DIST = 24;   // ближе этого два кандидата — один и тот же цвет
 // У концов линии смеси точки не ставим: они перебивают чистую плашку и чистую
@@ -1319,21 +1366,22 @@ function nearRamp(r, g, b, spot, tol) {
  */
 function collectProcessAnchors(scans, list, gcr) {
   if (!scans || !scans.length) return [];
-  let total = 0;
+  let inked = 0;
   const buckets = [];
   for (const scan of scans) {
     for (let i = 0; i < scan.bCount.length; i++) {
-      total += scan.bCount[i];
+      const isPaper = Math.hypot(255 - scan.bR[i], 255 - scan.bG[i], 255 - scan.bB[i]) < SPOT_WHITE_GUARD;
+      if (isPaper) continue; // бумага не краска: она и не кандидат, и не база для доли
+      inked += scan.bCount[i];
       buckets.push([scan.bCount[i], scan.bR[i], scan.bG[i], scan.bB[i]]);
     }
   }
-  if (!total) return [];
+  if (!inked) return [];
   buckets.sort((a, b) => b[0] - a[0]);
 
   const anchors = [];
   for (const [cnt, r, g, b] of buckets) {
-    if (cnt / total < ANCHOR_MIN_SHARE) break; // дальше только редкие цвета
-    if (Math.hypot(255 - r, 255 - g, 255 - b) < SPOT_WHITE_GUARD) continue; // бумага, её линия уже есть
+    if (cnt / inked < ANCHOR_MIN_SHARE) break; // дальше только редкие цвета
     if (list.some((s) => nearRamp(r, g, b, s, ANCHOR_MERGE_DIST))) continue; // это сама плашка
     if (anchors.some((a) => Math.hypot(a.r - r, a.g - g, a.b - b) < ANCHOR_MERGE_DIST)) continue;
     anchors.push({ r, g, b, cmyk: rgbToCmyk(r, g, b, gcr) });
@@ -1616,13 +1664,15 @@ function rampCss(spot) {
 const el = (id) => document.getElementById(id);
 const dropzone = el('dropzone'), fileInput = el('fileInput'), browseBtn = el('browseBtn');
 const fileInfo = el('fileInfo'), progressEl = el('progress'), progressText = el('progressText');
-const errorBox = el('errorBox'), noticeBox = el('noticeBox'), resultsEl = el('results');
-const recalcBtn = el('recalcBtn'), csvBtn = el('csvBtn'), resetBtn = el('resetBtn');
+const errorBox = el('errorBox'), resultsEl = el('results');
+const csvBtn = el('csvBtn'), globalActions = el('globalActions'), settingsTpl = el('settingsTpl');
 
-const state = {
-  fileName: '', scans: [], spots: [], deviceN: [], dpi: 300, stats: [],
-  pdfDoc: null, viewItems: [],
-};
+/**
+ * Работа = один загруженный файл со своим документом, растрами, найденными
+ * плашками, своей формой параметров и своим отчётом. Файлов может быть
+ * несколько — например крышка и дно одной коробки печатаются на разных листах.
+ */
+const state = { jobs: [], viewItems: [] };
 
 // Разрешение анализа зафиксировано: выбор из интерфейса убран, но параметр
 // живёт дальше — при необходимости достаточно вернуть селектор.
@@ -1634,27 +1684,50 @@ const ANALYSIS_DPI = 300;
 // нужно для правильного распознавания чистого чёрного (см. rgbToCmyk).
 const GCR_FIXED = 1;
 
-function readSettings() {
+/** Поле формы по исходному имени: у клона идентификаторы уже со своим суффиксом. */
+const fld = (form, name) => form.querySelector(`[data-f="${name}"]`);
+
+/**
+ * Клон формы параметров под очередной файл. Идентификаторы полей получают
+ * суффикс — иначе на странице с тремя файлами оказалось бы три элемента с
+ * одним id, и подписи с подсказками перестали бы попадать в своё поле.
+ */
+let formSeq = 0;
+function cloneSettingsForm() {
+  const uid = ++formSeq;
+  const form = settingsTpl.content.firstElementChild.cloneNode(true);
+  form.querySelectorAll('[id]').forEach((node) => {
+    const old = node.id;
+    node.dataset.f = old;
+    node.id = `${old}__${uid}`;
+    form.querySelectorAll(`label[for="${old}"]`).forEach((label) => { label.htmlFor = node.id; });
+  });
+  fld(form, 'baseSel').addEventListener('change', () => syncCustomSize(form));
+  return form;
+}
+
+/** Поля своего формата листа видны только при выборе «Свой формат». */
+function syncCustomSize(form) {
+  fld(form, 'customSize').classList.toggle('hidden', fld(form, 'baseSel').value !== 'custom');
+}
+
+function readSettings(form) {
   return {
     dpi: ANALYSIS_DPI,
     gcr: GCR_FIXED,
-    base: el('baseSel').value,
-    sheetW: +el('sheetW').value,
-    sheetH: +el('sheetH').value,
-    tacLimit: +el('tacLimit').value,
-    inkWeight: +el('inkWeight').value,
-    spotInkWeight: +el('spotInkWeight').value,
-    copies: +el('copies').value,
-    makeReadyLoss: +el('makeReadyLoss').value,
-    useSpots: el('spotToggle').checked,
-    useOverprint: el('overprintToggle').checked,
-    whiteThreshold: +el('whiteTh').value / 100,
+    base: fld(form, 'baseSel').value,
+    sheetW: +fld(form, 'sheetW').value,
+    sheetH: +fld(form, 'sheetH').value,
+    tacLimit: +fld(form, 'tacLimit').value,
+    inkWeight: +fld(form, 'inkWeight').value,
+    spotInkWeight: +fld(form, 'spotInkWeight').value,
+    copies: +fld(form, 'copies').value,
+    makeReadyLoss: +fld(form, 'makeReadyLoss').value,
+    useSpots: fld(form, 'spotToggle').checked,
+    useOverprint: fld(form, 'overprintToggle').checked,
+    whiteThreshold: +fld(form, 'whiteTh').value / 100,
   };
 }
-
-el('baseSel').addEventListener('change', () => {
-  el('customSize').classList.toggle('hidden', el('baseSel').value !== 'custom');
-});
 
 /**
  * Возвращает параметры к исходным значениям. Сами значения нигде не
@@ -1662,29 +1735,37 @@ el('baseSel').addEventListener('change', () => {
  * option[selected]), поэтому правка поля в вёрстке автоматически меняет и то,
  * к чему сбрасывается форма.
  */
-function resetSettingsForm() {
-  const card = el('settingsCard');
-  card.querySelectorAll('input').forEach((input) => {
+function resetSettingsForm(form) {
+  form.querySelectorAll('input').forEach((input) => {
     if (input.type === 'checkbox' || input.type === 'radio') input.checked = input.defaultChecked;
     else input.value = input.defaultValue;
   });
-  card.querySelectorAll('select').forEach((select) => {
+  form.querySelectorAll('select').forEach((select) => {
     const def = [...select.options].find((o) => o.defaultSelected);
     select.value = def ? def.value : select.options[0].value;
   });
   // Видимость полей своего формата листа переключается обработчиком, а он на
   // программную смену значения не срабатывает.
-  el('customSize').classList.toggle('hidden', el('baseSel').value !== 'custom');
+  syncCustomSize(form);
 }
 
-resetBtn.addEventListener('click', () => {
-  resetSettingsForm();
-  if (state.stats.length) renderResults();
-});
+/** Переносит значения одной формы во все остальные: у заказа нормы общие. */
+function copySettingsToAll(source) {
+  for (const job of state.jobs) {
+    if (job.form === source) continue;
+    source.querySelectorAll('[data-f]').forEach((node) => {
+      const twin = fld(job.form, node.dataset.f);
+      if (!twin) return;
+      if (node.type === 'checkbox' || node.type === 'radio') twin.checked = node.checked;
+      else if ('value' in node) twin.value = node.value; // у div-обёрток value нет — пропустятся сами
+    });
+    syncCustomSize(job.form);
+  }
+}
 
 browseBtn.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('click', (e) => { if (e.target !== browseBtn) fileInput.click(); });
-fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFiles([...fileInput.files]); });
 
 ['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => {
   e.preventDefault(); dropzone.classList.add('dragover');
@@ -1694,153 +1775,257 @@ fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(
   if (ev === 'drop' || e.target === document.documentElement) dropzone.classList.remove('dragover');
 }));
 document.addEventListener('drop', (e) => {
-  const f = e.dataTransfer && e.dataTransfer.files[0];
-  if (f) handleFile(f);
+  const files = e.dataTransfer ? [...e.dataTransfer.files] : [];
+  if (files.length) handleFiles(files);
 });
 
-recalcBtn.addEventListener('click', async () => {
-  const s = readSettings();
-  if (s.dpi !== state.dpi && state.file) { await handleFile(state.file); return; }
-  renderResults();
-});
 csvBtn.addEventListener('click', exportCsv);
 
 function showProgress(t) { progressText.textContent = t; progressEl.classList.remove('hidden'); }
 function hideProgress() { progressEl.classList.add('hidden'); }
-function showError(t) { errorBox.textContent = t; errorBox.classList.remove('hidden'); }
+function showError(t) { errorBox.innerHTML = t; errorBox.classList.remove('hidden'); }
 function clearError() { errorBox.classList.add('hidden'); }
 
-async function handleFile(file) {
+/**
+ * Новый набор файлов — новый заказ: всё загруженное раньше закрывается.
+ * Файлы разбираются по очереди; сбой на одном не отменяет остальные.
+ */
+async function handleFiles(files) {
+  // Разбор набора идёт минутами; второй заход в это время снёс бы документы
+  // из-под работающего растрирования.
+  if (state.busy) return;
+  state.busy = true;
   clearError();
   resultsEl.classList.add('hidden');
-  recalcBtn.disabled = csvBtn.disabled = true;
-  // Новый файл — новая работа: параметры от предыдущей не переносятся.
-  resetSettingsForm();
-  state.file = file;
-  state.fileName = file.name;
+  csvBtn.disabled = true;
+  await clearJobs();
 
-  showProgress('Загрузка pdf.js…');
-  try { await pdfjsReady; } catch (e) {
-    hideProgress();
-    showError('Не удалось загрузить pdf.js. Положите pdf.min.js и pdf.worker.min.js в папку lib/ рядом с этим файлом.');
+  const failed = [];
+  for (let i = 0; i < files.length; i++) {
+    const prefix = files.length > 1 ? `Файл ${i + 1} из ${files.length}: ` : '';
+    try {
+      const job = await loadJob(files[i], prefix);
+      if (job) state.jobs.push(job);
+    } catch (e) {
+      console.error(e);
+      failed.push(`${files[i].name} — ${e.message}`);
+    }
+  }
+
+  hideProgress();
+  state.busy = false;
+  fileInput.value = ''; // иначе повторный выбор тех же файлов не вызовет change
+  if (failed.length) {
+    showError('Не удалось разобрать: ' + failed.map(escapeHtml).join('<br>'));
+  }
+  if (!state.jobs.length) { updateFileInfo(); return; }
+  csvBtn.disabled = false;
+  updateFileInfo();
+  renderAll();
+}
+
+/** Закрывает документы всех работ и очищает список. */
+async function clearJobs() {
+  for (const job of state.jobs) await closeJob(job);
+  state.jobs = [];
+  state.viewItems = [];
+  resultsEl.innerHTML = '';
+}
+
+async function closeJob(job) {
+  if (job.pdfDoc) { try { await job.pdfDoc.destroy(); } catch (e) {} job.pdfDoc = null; }
+  if (job.underDoc) { try { await job.underDoc.destroy(); } catch (e) {} job.underDoc = null; }
+}
+
+async function removeJob(job) {
+  const i = state.jobs.indexOf(job);
+  if (i < 0) return;
+  state.jobs.splice(i, 1);
+  await closeJob(job);
+  updateFileInfo();
+  if (state.jobs.length) { renderAll(); return; }
+  resultsEl.innerHTML = '';
+  resultsEl.classList.add('hidden');
+  state.viewItems = [];
+  csvBtn.disabled = true;
+}
+
+function updateFileInfo() {
+  if (!state.jobs.length) {
+    fileInfo.classList.add('hidden');
+    globalActions.classList.add('hidden');
     return;
+  }
+  const size = state.jobs.reduce((s, j) => s + j.file.size, 0);
+  const pages = state.jobs.reduce((s, j) => s + j.scans.length, 0);
+  fileInfo.textContent = state.jobs.length === 1
+    ? `${state.jobs[0].fileName} · ${formatSize(size)} · страниц: ${pages}`
+    : `Файлов: ${state.jobs.length} · ${formatSize(size)} · страниц всего: ${pages}`;
+  fileInfo.classList.remove('hidden');
+  globalActions.classList.remove('hidden');
+}
+
+/** Разбирает один файл и собирает по нему работу. Ошибки бросает наружу. */
+async function loadJob(file, prefix) {
+  showProgress(prefix + 'загрузка pdf.js…');
+  try { await pdfjsReady; } catch (e) {
+    throw new Error('не удалось загрузить pdf.js; положите pdf.min.js и pdf.worker.min.js в папку lib/ рядом с этим файлом');
   }
 
   let buffer;
   try { buffer = new Uint8Array(await file.arrayBuffer()); } catch (e) {
-    hideProgress(); showError('Не удалось прочитать файл с диска.'); return;
+    throw new Error('не удалось прочитать файл с диска');
   }
 
-  showProgress('Поиск плашечных красок в структуре файла…');
+  showProgress(prefix + 'поиск плашечных красок в структуре файла…');
   let spotInfo = { spots: [], deviceN: [], failed: true };
   try { spotInfo = await findSpotColors(buffer); } catch (e) { console.warn('spot scan failed', e); }
-  state.spots = spotInfo.spots;
-  state.deviceN = spotInfo.deviceN;
-  state.spotScanFailed = spotInfo.failed;
 
-  let pdfDoc;
+  const job = {
+    file, fileName: file.name,
+    spots: spotInfo.spots, deviceN: spotInfo.deviceN, spotScanFailed: spotInfo.failed,
+    probedCount: 0, overprintStates: spotInfo.overprintStates || [], overprintApplied: false,
+    pdfDoc: null, underDoc: null, scans: [], stats: [], spotIndex: null,
+    form: cloneSettingsForm(), settings: null,
+  };
+
   try {
-    showProgress('Открытие документа…');
+    showProgress(prefix + 'открытие документа…');
     // Документ остаётся открытым и после разбора: по клику на превью страница
     // дорисовывается в высоком разрешении.
-    if (state.pdfDoc) { try { await state.pdfDoc.destroy(); } catch (e2) {} state.pdfDoc = null; }
-    if (state.underDoc) { try { await state.underDoc.destroy(); } catch (e2) {} state.underDoc = null; }
-    pdfDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
-    state.pdfDoc = pdfDoc;
+    job.pdfDoc = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
   } catch (e) {
-    hideProgress();
     console.error(e);
-    showError('Не удалось открыть файл. Для AI‑файла нужна опция «PDF‑совместимый файл» при сохранении. ' +
-              'Если открываете страницу через file:// и видите ошибку воркера — запустите локальный сервер.');
-    return;
+    throw new Error('не удалось открыть документ; для AI‑файла нужна опция «PDF‑совместимый файл» при сохранении');
   }
 
-  if (state.spots.length) {
-    showProgress('Замер тоновых шкал плашечных красок…');
+  if (job.spots.length) {
+    showProgress(prefix + 'замер тоновых шкал плашечных красок…');
     await new Promise((r) => setTimeout(r, 0));
     try {
-      state.probedCount = await probeSpotRamps(buffer, spotInfo.docInfo, state.spots);
+      job.probedCount = await probeSpotRamps(buffer, spotInfo.docInfo, job.spots);
     } catch (e) {
       console.warn(e);
-      state.probedCount = 0;
     }
-  } else {
-    state.probedCount = 0;
   }
 
   // Копия документа, где объекты с наложением не рисуются, — из неё берётся
   // краска, спрятанная под оверпринтом.
-  state.overprintStates = spotInfo.overprintStates || [];
-  let underDoc = null;
-  if (state.overprintStates.length) {
-    showProgress('Подготовка второго растра для наложения…');
+  if (job.overprintStates.length) {
+    showProgress(prefix + 'подготовка второго растра для наложения…');
     await new Promise((r) => setTimeout(r, 0));
     try {
-      const data = buildOverprintDoc(buffer, spotInfo.docInfo, state.overprintStates);
-      if (data) underDoc = await pdfjsLib.getDocument({ data, stopAtErrors: false }).promise;
+      const data = buildOverprintDoc(buffer, spotInfo.docInfo, job.overprintStates);
+      // Второй документ остаётся открытым: он нужен, когда сепарацию с наложением
+      // открывают крупно и её приходится растрировать заново.
+      if (data) job.underDoc = await pdfjsLib.getDocument({ data, stopAtErrors: false }).promise;
     } catch (e) {
       console.warn('overprint doc failed', e);
-      underDoc = null;
     }
   }
-  state.overprintApplied = !!underDoc;
+  job.overprintApplied = !!job.underDoc;
 
-  const settings = readSettings();
-  state.dpi = settings.dpi;
-  state.scans = [];
-
-  try {
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      showProgress(`Растрирование страницы ${i} из ${pdfDoc.numPages} при ${settings.dpi} dpi…`);
-      await new Promise((r) => setTimeout(r, 0));
-      const page = await pdfDoc.getPage(i);
-      let pageUnder = null;
-      if (underDoc && underDoc.numPages >= i) {
-        try { pageUnder = await underDoc.getPage(i); } catch (e) { pageUnder = null; }
-      }
-      state.scans.push(await scanPage(page, settings.dpi, pageUnder));
+  const pages = job.pdfDoc.numPages;
+  for (let i = 1; i <= pages; i++) {
+    showProgress(prefix + `растрирование страницы ${i} из ${pages} при ${ANALYSIS_DPI} dpi…`);
+    await new Promise((r) => setTimeout(r, 0));
+    const page = await job.pdfDoc.getPage(i);
+    let pageUnder = null;
+    if (job.underDoc && job.underDoc.numPages >= i) {
+      try { pageUnder = await job.underDoc.getPage(i); } catch (e) { pageUnder = null; }
+    }
+    try {
+      job.scans.push(await scanPage(page, ANALYSIS_DPI, pageUnder));
+    } catch (e) {
+      console.error(e);
+      throw new Error('ошибка при растрировании страницы ' + i + ': ' + e.message);
+    } finally {
       if (pageUnder) pageUnder.cleanup();
       page.cleanup();
     }
-  } catch (e) {
-    hideProgress(); console.error(e);
-    showError('Ошибка при растрировании страницы: ' + e.message);
-    return;
   }
-
-  // Второй документ остаётся открытым: он нужен, когда сепарацию с наложением
-  // открывают крупно и её приходится растрировать заново.
-  state.underDoc = underDoc;
-
-  fileInfo.textContent = `${file.name} · ${formatSize(file.size)} · страниц: ${pdfDoc.numPages}`;
-  fileInfo.classList.remove('hidden');
-  hideProgress();
-  recalcBtn.disabled = csvBtn.disabled = false;
-  renderResults();
+  return job;
 }
 
-function renderResults() {
-  const settings = readSettings();
-  state.spotIndex = settings.useSpots ? buildSpotIndex(state.spots, state.scans, settings.gcr) : null;
-  state.stats = state.scans.map((scan) => computeStats(scan, settings, state.spotIndex));
+/** Пересчитывает и перерисовывает всё: сводку, каждый файл и раздел о точности. */
+function renderAll() {
+  for (const job of state.jobs) {
+    job.settings = readSettings(job.form);
+    job.spotIndex = job.settings.useSpots
+      ? buildSpotIndex(job.spots, job.scans, job.settings.gcr) : null;
+    job.stats = job.scans.map((scan) => computeStats(scan, job.settings, job.spotIndex));
+  }
+
+  // Формы живут в state.jobs и переживают перерисовку: очистка контейнера их
+  // только отцепляет, введённые значения остаются на месте.
   resultsEl.innerHTML = '';
   state.viewItems = []; // список для карусели пересобирается вместе с карточками
   resultsEl.classList.remove('hidden');
 
-  renderNotices(settings);
-  if (state.stats.length > 1) resultsEl.appendChild(buildTotalCard(settings));
-  state.stats.forEach((stats, i) => resultsEl.appendChild(buildPageCard(i, stats, settings)));
-  resultsEl.appendChild(buildAccuracyCard(settings));
+  if (state.jobs.length > 1) resultsEl.appendChild(buildOrderCard());
+  state.jobs.forEach((job, i) => resultsEl.appendChild(buildFileGroup(job, i)));
+  resultsEl.appendChild(buildAccuracyCard(state.jobs[0].settings));
 }
 
-function renderNotices(settings) {
+/** Блок одного файла: шапка, свои параметры, примечания и отчёт по страницам. */
+function buildFileGroup(job, index) {
+  const group = document.createElement('div');
+  group.className = 'file-group';
+
+  const head = document.createElement('section');
+  head.className = 'card';
+  const bar = document.createElement('div');
+  bar.className = 'file-head';
+  bar.innerHTML =
+    `<div><div class="file-name">` +
+    (state.jobs.length > 1 ? `<span class="file-index">Файл ${index + 1} ·</span>` : '') +
+    `${escapeHtml(job.fileName)}</div>` +
+    `<div class="page-meta" style="margin-top:4px">${formatSize(job.file.size)} · страниц: ${job.scans.length}</div></div>`;
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'file-remove';
+  remove.title = 'Убрать файл из расчёта';
+  remove.setAttribute('aria-label', 'Убрать файл из расчёта');
+  remove.innerHTML = '&times;';
+  remove.addEventListener('click', () => removeJob(job));
+  bar.appendChild(remove);
+  head.appendChild(bar);
+
+  head.appendChild(job.form);
+  wireFormActions(job);
+  // Переносить параметры некуда, пока файл один.
+  job.applyAllBtn.classList.toggle('hidden', state.jobs.length < 2);
+  renderNotices(job);
+  group.appendChild(head);
+
+  if (job.stats.length > 1) group.appendChild(buildTotalCard(job));
+  job.stats.forEach((stats, i) => group.appendChild(buildPageCard(job, i, stats)));
+  return group;
+}
+
+/** Кнопки формы навешиваются один раз — форма переживает перерисовку. */
+function wireFormActions(job) {
+  if (job.wired) return;
+  job.wired = true;
+  const act = (name) => job.form.querySelector(`[data-act="${name}"]`);
+  act('recalc').addEventListener('click', () => renderAll());
+  act('reset').addEventListener('click', () => { resetSettingsForm(job.form); renderAll(); });
+  const applyAll = act('apply-all');
+  applyAll.addEventListener('click', () => { copySettingsToAll(job.form); renderAll(); });
+  job.applyAllBtn = applyAll;
+}
+
+function renderNotices(job) {
+  const settings = job.settings;
+  const noticeBox = fld(job.form, 'noticeBox');
   const items = [];
-  const processNamed = state.spots.filter((s) => s.process);
-  const real = state.spots.filter((s) => !s.process);
+  const processNamed = job.spots.filter((s) => s.process);
+  const real = job.spots.filter((s) => !s.process);
   const withRamp = real.filter((s) => s.ramp);
   const noRamp = real.filter((s) => !s.ramp);
 
-  const minDpi = Math.min(...state.scans.map((s) => s.effectiveDpi || ANALYSIS_DPI));
+  const minDpi = Math.min(...job.scans.map((s) => s.effectiveDpi || ANALYSIS_DPI));
   if (minDpi < ANALYSIS_DPI - 5) {
     items.push(`Лист крупный, поэтому растрирование шло при ${minDpi} dpi вместо ${ANALYSIS_DPI}: ` +
       'на больших холстах браузер срывает отрисовку. На плашках это не сказывается, тонкие линии считаются грубее.');
@@ -1865,12 +2050,12 @@ function renderNotices(settings) {
     }
     if (!settings.useSpots) items.push('Разделение плашек выключено — они учтены как CMYK‑эквивалент.');
   }
-  const opCount = (state.overprintStates || []).length;
+  const opCount = job.overprintStates.length;
   if (opCount) {
-    const pairPixels = state.scans.reduce((s, sc) => s + (sc.pairs ? sc.pairs.count.reduce((a, b) => a + b, 0) : 0), 0);
-    const totalPixels = state.scans.reduce((s, sc) => s + sc.totalPixels, 0);
+    const pairPixels = job.scans.reduce((s, sc) => s + (sc.pairs ? sc.pairs.count.reduce((a, b) => a + b, 0) : 0), 0);
+    const totalPixels = job.scans.reduce((s, sc) => s + sc.totalPixels, 0);
     const share = totalPixels ? (pairPixels / totalPixels * 100) : 0;
-    if (!state.overprintApplied) {
+    if (!job.overprintApplied) {
       items.push(`Наложение (overprint) в файле есть (${opCount} ${opCount === 1 ? 'состояние' : 'состояний'}), ` +
         'но подготовить второй растр не удалось — краска под наложением не учтена, значения занижены.');
     } else if (!settings.useOverprint) {
@@ -1883,11 +2068,11 @@ function renderNotices(settings) {
         'она добавлена в свои каналы.');
     }
   }
-  if (state.deviceN.length) {
-    items.push(`Составные краски DeviceN: ${state.deviceN.map(escapeHtml).join(', ')} — их тон отдельно не рассчитывается.`);
+  if (job.deviceN.length) {
+    items.push(`Составные краски DeviceN: ${job.deviceN.map(escapeHtml).join(', ')} — их тон отдельно не рассчитывается.`);
   }
-  if (!state.spots.length && !state.deviceN.length) {
-    items.push(state.spotScanFailed
+  if (!job.spots.length && !job.deviceN.length) {
+    items.push(job.spotScanFailed
       ? 'Не удалось разобрать структуру файла на предмет плашечных красок — всё посчитано как CMYK. Если в макете есть Pantone, проверьте результат вручную.'
       : 'Плашечных красок (Separation/DeviceN) в файле не найдено — работа считается как чистый CMYK.');
   }
@@ -1896,40 +2081,107 @@ function renderNotices(settings) {
   noticeBox.classList.remove('hidden');
 }
 
-function buildTotalCard(settings) {
-  const card = document.createElement('section');
-  card.className = 'card';
-  const pages = state.stats.length;
-  const totalBaseM2 = state.stats.reduce((s, st) => s + st.baseAreaM2, 0);
-
-  // Средневзвешенное по площади покрытие. occurrences считает страницы, на
-  // которых краска реально нанесена, — для потерь на приладку: каждая такая
-  // страница означает отдельную приладку этой краски.
+/** Собирает краски по списку отчётов в общие строки расхода. */
+function aggregateInks(entries) {
+  // occurrences считает страницы, на которых краска реально нанесена, — для
+  // потерь на приладку: каждая такая страница означает отдельную приладку.
   const agg = new Map();
-  for (const st of state.stats) {
-    for (const ch of [...st.channels, ...st.spotChannels]) {
-      const cur = agg.get(ch.label) || { label: ch.label, css: ch.css, key: ch.key, inkAreaM2: 0, occurrences: 0 };
+  let totalBaseM2 = 0;
+  for (const { stats, settings } of entries) {
+    totalBaseM2 += stats.baseAreaM2;
+    for (const ch of [...stats.channels, ...stats.spotChannels]) {
+      const cur = agg.get(ch.label) ||
+        { label: ch.label, css: ch.css, key: ch.key, inkAreaM2: 0, occurrences: 0, grams: 0, tirazhKg: 0 };
+      const grams = ch.inkAreaM2 * inkWeightFor(ch, settings);
       cur.inkAreaM2 += ch.inkAreaM2;
-      if (ch.areaPercent > 0) cur.occurrences++;
+      cur.grams += grams;
+      if (ch.areaPercent > 0) {
+        cur.occurrences++;
+        cur.tirazhKg += settings.makeReadyLoss;
+      }
+      // Тираж у каждого листа свой, поэтому килограммы складываются готовыми.
+      cur.tirazhKg += grams * settings.copies / 1000;
       agg.set(ch.label, cur);
     }
   }
   const rows = [...agg.values()].map((a) => ({
-    ...a,
-    coverage: totalBaseM2 > 0 ? a.inkAreaM2 / totalBaseM2 * 100 : 0,
-    grams: a.inkAreaM2 * inkWeightFor(a, settings),
-  }));
+    ...a, coverage: totalBaseM2 > 0 ? a.inkAreaM2 / totalBaseM2 * 100 : 0,
+  })).sort((a, b) => b.coverage - a.coverage);
+  return { rows, totalBaseM2 };
+}
+
+/**
+ * Общее имя заказа. Простой общий префикс не годится: имена монтажей
+ * различаются уже на втором знаке («…_3_…», «…_4_…»). Поэтому берём слова,
+ * встречающиеся во всех именах, в порядке первого файла.
+ */
+function orderTitle() {
+  const names = state.jobs.map((j) => j.fileName.replace(/\.[^.]+$/, ''));
+  if (!names.length) return 'Общий расход краски';
+  if (names.length === 1) return names[0];
+  const split = (s) => s.split(/[_\s]+/).filter(Boolean);
+  const others = names.slice(1).map((n) => new Set(split(n).map((t) => t.toLowerCase())));
+  const seen = new Set();
+  const common = split(names[0]).filter((token) => {
+    const key = token.toLowerCase();
+    if (seen.has(key) || !others.every((set) => set.has(key))) return false;
+    seen.add(key);
+    return true;
+  });
+  return common.length >= 2 ? common.join(' ') : 'Общий расход краски';
+}
+
+/** Сводка по заказу: краска со всех листов вместе. */
+function buildOrderCard() {
+  const card = document.createElement('section');
+  card.className = 'card';
+  const entries = [];
+  for (const job of state.jobs) {
+    for (const stats of job.stats) entries.push({ stats, settings: job.settings });
+  }
+  const { rows, totalBaseM2 } = aggregateInks(entries);
+  const sheets = entries.length;
+  const sameCopies = state.jobs.every((j) => j.settings.copies === state.jobs[0].settings.copies);
+
+  const files = state.jobs.map((job) => {
+    const base = job.stats.map((st) => st.baseLabel).join(', ');
+    return `<li>${escapeHtml(job.fileName)} — ${escapeHtml(base)}, тираж ${job.settings.copies}</li>`;
+  }).join('');
+
+  card.innerHTML = `<h2>${escapeHtml(orderTitle())}</h2>` +
+    `<div class="page-meta" style="margin-bottom:14px">Листов в заказе: ${sheets} · суммарная площадь ` +
+    `${fmt(totalBaseM2, 4)} м² на 1 комплект` +
+    (sameCopies ? ` · тираж ${state.jobs[0].settings.copies}` : ' · тиражи у листов разные') + '</div>' +
+    channelTiles(rows) +
+    inkTable(rows, {
+      perSheetHead: 'На 1 комплект, г',
+      tirazhHead: 'На весь заказ, кг',
+      note: 'Покрытие — средневзвешенное по площади листов: складывать проценты с листов разного формата нельзя. ' +
+        'Потери на приладку учтены по разу на каждый лист, где краска нанесена, — это отдельные прогоны.',
+    }) +
+    `<h3>Листы заказа</h3><ul class="order-files">${files}</ul>`;
+  card.appendChild(buildShotActions(card, null, null));
+  return card;
+}
+
+function buildTotalCard(job) {
+  const settings = job.settings;
+  const card = document.createElement('section');
+  card.className = 'card';
+  const pages = job.stats.length;
+  const { rows, totalBaseM2 } = aggregateInks(job.stats.map((stats) => ({ stats, settings })));
 
   card.innerHTML = `<h2>Итого по документу (${pages} стр.)</h2>` +
     `<div class="page-meta" style="margin-bottom:14px">Суммарная площадь базы: ${fmt(totalBaseM2, 4)} м² на 1 экземпляр</div>` +
     channelTiles(rows) +
-    inkTable(rows, settings, totalBaseM2);
-  card.appendChild(buildShotActions(card, null));
+    inkTable(rows, sheetTableOpts(settings));
+  card.appendChild(buildShotActions(card, job, null));
   return card;
 }
 
-function buildPageCard(i, stats, settings) {
-  const scan = state.scans[i];
+function buildPageCard(job, i, stats) {
+  const settings = job.settings;
+  const scan = job.scans[i];
   const card = document.createElement('section');
   card.className = 'card';
 
@@ -1938,7 +2190,7 @@ function buildPageCard(i, stats, settings) {
   // Размер растра (scan.widthPx × scan.heightPx) специально не показываем,
   // но он по-прежнему считается — вернуть строку можно одним словом.
   head.innerHTML =
-    `<div class="page-title">Страница ${i + 1}<span class="page-file">· ${escapeHtml(state.fileName)}</span></div>` +
+    `<div class="page-title">Страница ${i + 1}<span class="page-file">· ${escapeHtml(job.fileName)}</span></div>` +
     `<div class="page-meta">${escapeHtml(stats.baseLabel)} · ${fmt(stats.baseAreaM2, 4)} м²</div>`;
   card.appendChild(head);
 
@@ -1948,17 +2200,21 @@ function buildPageCard(i, stats, settings) {
   const left = document.createElement('div');
   left.className = 'preview';
   const pc = document.createElement('canvas');
-  drawPreviewInto(pc, scan, null, settings);
-  registerView(pc, i, null, `Страница ${i + 1}`);
+  drawPreviewInto(pc, scan, null, settings, job.spotIndex);
+  registerView(pc, job, i, null, `Страница ${i + 1}`);
   left.appendChild(pc);
-  left.appendChild(buildSeparationPreviews(scan, stats, settings, i));
+  left.appendChild(buildSeparationPreviews(job, scan, stats, i));
   body.appendChild(left);
 
   const right = document.createElement('div');
-  const all = [...stats.channels, ...stats.spotChannels].map((ch) => ({
-    ...ch, grams: ch.inkAreaM2 * inkWeightFor(ch, settings),
-    occurrences: ch.areaPercent > 0 ? 1 : 0,
-  }));
+  // Порядок каналов здесь сохраняем как есть (CMYK, затем плашки), поэтому
+  // строки собираются вручную, а не через aggregateInks с его сортировкой.
+  const all = [...stats.channels, ...stats.spotChannels].map((ch) => {
+    const grams = ch.inkAreaM2 * inkWeightFor(ch, settings);
+    const used = ch.areaPercent > 0;
+    return { ...ch, grams, occurrences: used ? 1 : 0,
+      tirazhKg: grams * settings.copies / 1000 + (used ? settings.makeReadyLoss : 0) };
+  });
   right.innerHTML =
     channelTiles(all) +
     `<div class="tiles" style="margin-top:12px">
@@ -1972,11 +2228,11 @@ function buildPageCard(i, stats, settings) {
         <div class="tile-value">${fmt(stats.maxTac, 0)} %</div>
         <div class="tile-sub">выше ${settings.tacLimit} %: ${fmt(stats.overLimitPercent, 2)} % площади</div></div>
     </div>` +
-    inkTable(all, settings, stats.baseAreaM2);
+    inkTable(all, sheetTableOpts(settings));
   body.appendChild(right);
 
   card.appendChild(body);
-  card.appendChild(buildShotActions(card, i));
+  card.appendChild(buildShotActions(card, job, i));
   return card;
 }
 
@@ -1990,34 +2246,56 @@ function channelTiles(rows) {
     </div>`).join('') + '</div>';
 }
 
-/** Норма расхода: у плашечных красок своя. */
-function inkWeightFor(ch, settings) {
-  return ch.key === 'spot' ? settings.spotInkWeight : settings.inkWeight;
+// Отдельные нормы для конкретных плашек. Имя разбирается на слова, регистр не
+// важен, поэтому под правило подходят и «Lak», и «lak UV», и «ЛАК выборочный»,
+// а слитные написания вроде «lakoviy» — нет: слово должно стоять целиком.
+const NAMED_INK_WEIGHTS = [
+  { words: ['lak', 'лак'], weight: 0.45 }, // г/м² при 100 %
+];
+
+/** Именная норма по названию краски или null, если краска обычная. */
+function namedInkWeight(label) {
+  const words = String(label).toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
+  for (const rule of NAMED_INK_WEIGHTS) {
+    if (words.some((w) => rule.words.includes(w))) return rule.weight;
+  }
+  return null;
 }
 
-function inkTable(rows, settings, baseAreaM2) {
-  const body = rows.map((ch) => {
-    const grams = ch.inkAreaM2 * inkWeightFor(ch, settings);
-    // Потери на приладку — константа за краску, не за лист: добавляются к
-    // тиражу отдельно от чистого переноса, только если краска реально нанесена.
-    const occurrences = ch.occurrences !== undefined ? ch.occurrences : (ch.areaPercent > 0 ? 1 : 0);
-    const tirazhKg = grams * settings.copies / 1000 + occurrences * settings.makeReadyLoss;
-    return `<tr>
+/** Норма расхода: у плашечных красок своя, у части из них — именная. */
+function inkWeightFor(ch, settings) {
+  if (ch.key !== 'spot') return settings.inkWeight;
+  const named = namedInkWeight(ch.label);
+  return named !== null ? named : settings.spotInkWeight;
+}
+
+/** Заголовки и примечание таблицы для одного листа. */
+function sheetTableOpts(settings) {
+  return {
+    perSheetHead: 'На 1 лист, г',
+    tirazhHead: `На ${settings.copies} ${plural(settings.copies, 'лист', 'листа', 'листов')}, кг`,
+    note: 'В колонку тиража включены потери на приладку — ' +
+      `${fmt(settings.makeReadyLoss, settings.makeReadyLoss < 1 ? 2 : 1)} кг на каждую использованную краску.`,
+  };
+}
+
+// Расход по каждой строке уже посчитан вызывающей стороной: в сводке по заказу
+// у листов разные тиражи и нормы, и одной settings на всю таблицу не хватает.
+function inkTable(rows, opts) {
+  const body = rows.map((ch) => `<tr>
       <td><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${ch.css}"></span> ${escapeHtml(ch.label)}</td>
       <td>${fmt(ch.coverage, 2)}</td>
       <td>${fmt(ch.inkAreaM2, 4)}</td>
-      <td>${fmt(grams, 3)}</td>
-      <td>${fmt(tirazhKg, 3)}</td>
-    </tr>`;
-  }).join('');
+      <td>${fmt(ch.grams, 3)}</td>
+      <td>${fmt(ch.tirazhKg, 3)}</td>
+    </tr>`).join('');
   return `<h3>Расход краски</h3><div class="table-wrap"><table>
-    <thead><tr><th>Краска</th><th>Покрытие, %</th><th>Площадь, м²</th><th>На 1 лист, г</th><th>На ${settings.copies} ${plural(settings.copies, 'лист', 'листа', 'листов')}, кг</th></tr></thead>
+    <thead><tr><th>Краска</th><th>Покрытие, %</th><th>Площадь, м²</th><th>${opts.perSheetHead}</th><th>${opts.tirazhHead}</th></tr></thead>
     <tbody>${body}</tbody></table></div>
-    <p class="page-meta" style="margin-top:8px">В колонку тиража включены потери на приладку —
-    ${fmt(settings.makeReadyLoss, settings.makeReadyLoss < 1 ? 2 : 1)} кг на каждую использованную краску.</p>`;
+    <p class="page-meta" style="margin-top:8px">${opts.note}</p>`;
 }
 
-function buildSeparationPreviews(scan, stats, settings, pageIndex) {
+function buildSeparationPreviews(job, scan, stats, pageIndex) {
   const wrap = document.createElement('div');
   wrap.className = 'seps';
 
@@ -2028,8 +2306,8 @@ function buildSeparationPreviews(scan, stats, settings, pageIndex) {
 
   specs.forEach(({ label, spec }) => {
     const canvas = document.createElement('canvas');
-    drawPreviewInto(canvas, scan, spec, settings);
-    registerView(canvas, pageIndex, spec, `Страница ${pageIndex + 1} — сепарация ${label}`);
+    drawPreviewInto(canvas, scan, spec, job.settings, job.spotIndex);
+    registerView(canvas, job, pageIndex, spec, `Страница ${pageIndex + 1} — сепарация ${label}`);
 
     const item = document.createElement('div');
     item.className = 'sep-item';
@@ -2040,6 +2318,14 @@ function buildSeparationPreviews(scan, stats, settings, pageIndex) {
     wrap.appendChild(item);
   });
   return wrap;
+}
+
+/** Приладка у разных листов может быть задана по-разному — тогда числа не называем. */
+function makeReadyText() {
+  const values = [...new Set(state.jobs.map((j) => j.settings.makeReadyLoss))];
+  return values.length === 1
+    ? `${fmt(values[0], values[0] < 1 ? 2 : 1)} кг`
+    : 'заданные в параметрах листа килограммы';
 }
 
 function buildAccuracyCard(settings) {
@@ -2054,10 +2340,11 @@ function buildAccuracyCard(settings) {
     <p><b>Покрытие, %</b> — это средняя доля краски по площади базы: сумма тонов всех пикселей, делённая на площадь базы.
     Именно это число нужно для расчёта расхода краски. «Площадь с краской» — доля площади, где краска вообще присутствует.</p>
     <p><b>Расход на тираж.</b> Колонка «На N листов, кг» — это чистый перенос краски на бумагу (площадь × норма г/м²)
-    плюс ${fmt(settings.makeReadyLoss, settings.makeReadyLoss < 1 ? 2 : 1)} кг на каждую краску, которая реально
-    нанесена в этой работе, — технологические потери на раскатку валов и остаток в красочном аппарате при приладке.
+    плюс ${makeReadyText()} на каждую краску, которая реально нанесена в этой работе, — технологические потери
+    на раскатку валов и остаток в красочном аппарате при приладке.
     Эта добавка не зависит ни от площади, ни от тиража и прибавляется один раз за краску; для многостраничного
     файла — один раз на каждой странице, где эта краска встречается, поскольку у разных страниц разная приладка.
+    В сводке по заказу так же: каждый лист — отдельный прогон и отдельная приладка.
     Меняется полем «Потери на приладку» в параметрах.</p>
     <p><b>Отсечка.</b> Краска с покрытием ниже ${fmt(INK_MIN_COVERAGE, 1)} % в отчёт не попадает: на сглаженных краях
     и в местах наложения всегда остаются доли процента посторонних красок, а каждая строка в расходе тянет за собой
@@ -2082,7 +2369,9 @@ function buildAccuracyCard(settings) {
     <ul>
       <li>Разделение чёрного и CMY в файле однозначно не восстановимо: серые и чёрные всегда считаются чистым K
         (минимум суммарной краски) — так дешевле физически и так снимается неоднозначность округления при
-        растрировании. Если в оригинале чёрный набран смесью CMY, здесь он всё равно уйдёт в K.</li>
+        растрировании. Если в оригинале чёрный набран смесью CMY, здесь он всё равно уйдёт в K. Это же правило
+        распространяется на нейтрали темнее самой тёмной, которую даёт K 100 %: триадой такая глубина не
+        воспроизводится, и без этого правила решатель добирал бы её ложными цианом, маджентой и жёлтым.</li>
       <li>Если наложение задано одним состоянием, а прозрачность — другим, погасить объект не удастся: тогда
         коррекция просто не сработает и краска под ним не добавится. Лишней краски при этом не появится —
         второй растр не может показать больше, чем нарисовано.</li>
@@ -2228,13 +2517,15 @@ async function cardToBlob(card) {
   return withPngDpi(raw, SHOT_DPI);
 }
 
-function shotFileName(pageIndex) {
-  const base = (state.fileName || 'запечатка').replace(/\.[^.]+$/, '');
+/** job === null — снимок сводки по заказу. */
+function shotFileName(job, pageIndex) {
+  if (!job) return `${orderTitle().replace(/\s+/g, '_')}_сводка_${SHOT_DPI}dpi.png`;
+  const base = (job.fileName || 'запечатка').replace(/\.[^.]+$/, '');
   const page = pageIndex === null ? 'итого' : `стр${pageIndex + 1}`;
   return `${base}_${page}_запечатка_${SHOT_DPI}dpi.png`;
 }
 
-function buildShotActions(card, pageIndex) {
+function buildShotActions(card, job, pageIndex) {
   const row = document.createElement('div');
   row.className = 'card-actions';
   row.setAttribute('data-noshot', '');
@@ -2252,7 +2543,7 @@ function buildShotActions(card, pageIndex) {
       const blob = await cardToBlob(card);
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = shotFileName(pageIndex);
+      a.download = shotFileName(job, pageIndex);
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 3000);
       say(`Сохранено · ${SHOT_DPI} dpi · ${formatSize(blob.size)}`);
@@ -2292,10 +2583,10 @@ const HIRES_MAX_PX = 2400;      // потолок для композита
 const HIRES_SEP_MAX_PX = 1500;  // для сепараций ниже: каждый пиксель проходит через обращение полинома
 const lb = { el: null, token: 0, source: null, index: 0 };
 
-/** Каждое превью попадает в общий список — по нему листает карусель. */
-function registerView(canvas, pageIndex, spec, title) {
+/** Каждое превью попадает в общий список — карусель листает по всем файлам. */
+function registerView(canvas, job, pageIndex, spec, title) {
   const index = state.viewItems.length;
-  state.viewItems.push({ pageIndex, spec, title, canvas });
+  state.viewItems.push({ job, pageIndex, spec, title, canvas });
   canvas.className = 'zoomable';
   canvas.title = `${title} — нажмите, чтобы посмотреть крупно`;
   canvas.addEventListener('click', () => openLightbox(index));
@@ -2337,7 +2628,7 @@ function ensureLightbox() {
 function applyLightboxItem(index) {
   const items = state.viewItems;
   const item = items[index];
-  const scan = state.scans[item.pageIndex];
+  const scan = item.job.scans[item.pageIndex];
   lb.index = index;
   lb.source = item.canvas;
 
@@ -2350,8 +2641,9 @@ function applyLightboxItem(index) {
   c.style.width = dw + 'px';
   c.style.height = dh + 'px';
   // Сразу показываем миниатюру — крупно и мыльно, но без ожидания.
-  drawPreviewInto(c, scan, item.spec, readSettings());
-  lb.caption.textContent = `${item.title}  ·  ${index + 1} из ${items.length}`;
+  drawPreviewInto(c, scan, item.spec, item.job.settings, item.job.spotIndex);
+  const where = state.jobs.length > 1 ? `${item.job.fileName} — ` : '';
+  lb.caption.textContent = `${where}${item.title}  ·  ${index + 1} из ${items.length}`;
   return dw;
 }
 
@@ -2361,7 +2653,7 @@ async function loadHiRes(index, dw) {
   const item = state.viewItems[index];
   lb.spinner.classList.add('busy');
   try {
-    const hi = await renderHiRes(item.pageIndex, dw, item.spec);
+    const hi = await renderHiRes(item.job, item.pageIndex, dw, item.spec);
     if (token !== lb.token) return;
     lb.canvas.width = hi.width; lb.canvas.height = hi.height;
     lb.canvas.getContext('2d').drawImage(hi, 0, 0);
@@ -2397,7 +2689,7 @@ function navigateLightbox(delta) {
  */
 function openLightbox(index) {
   const item = state.viewItems[index];
-  if (!item || !state.scans[item.pageIndex]) return;
+  if (!item || !item.job.scans[item.pageIndex]) return;
   ensureLightbox();
 
   const sourceCanvas = item.canvas;
@@ -2452,13 +2744,13 @@ function closeLightbox() {
 }
 
 /** Растрирует страницу заново под размер показа; channel !== null — сепарация. */
-async function renderHiRes(pageIndex, cssWidth, spec) {
-  if (!state.pdfDoc) throw new Error('документ закрыт');
+async function renderHiRes(job, pageIndex, cssWidth, spec) {
+  if (!job.pdfDoc) throw new Error('документ закрыт');
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const cap = !spec ? HIRES_MAX_PX : HIRES_SEP_MAX_PX;
   const targetPx = Math.max(320, Math.min(cap, Math.round(cssWidth * dpr)));
 
-  const page = await state.pdfDoc.getPage(pageIndex + 1);
+  const page = await job.pdfDoc.getPage(pageIndex + 1);
   const vp1 = page.getViewport({ scale: 1 });
   const vp = page.getViewport({ scale: targetPx / vp1.width });
   const w = Math.max(1, Math.round(vp.width)), h = Math.max(1, Math.round(vp.height));
@@ -2470,13 +2762,13 @@ async function renderHiRes(pageIndex, cssWidth, spec) {
   page.cleanup();
 
   if (spec) {
-    const settings = readSettings();
+    const settings = job.settings;
     // Для сепарации нужен и второй растр — иначе краска под наложением
     // на крупном просмотре пропадёт, хотя в цифрах она есть.
     let underData = null;
-    if (settings.useOverprint && state.underDoc && state.underDoc.numPages > pageIndex) {
+    if (settings.useOverprint && job.underDoc && job.underDoc.numPages > pageIndex) {
       try {
-        const pageUnder = await state.underDoc.getPage(pageIndex + 1);
+        const pageUnder = await job.underDoc.getPage(pageIndex + 1);
         const c2 = document.createElement('canvas');
         c2.width = w; c2.height = h;
         const ctx2 = c2.getContext('2d', { willReadFrequently: true });
@@ -2489,7 +2781,7 @@ async function renderHiRes(pageIndex, cssWidth, spec) {
       }
     }
     const img = ctx.getImageData(0, 0, w, h);
-    separationFromImage(img, spec, settings.gcr, underData);
+    separationFromImage(img, spec, settings.gcr, underData, job.spotIndex);
     ctx.putImageData(img, 0, 0);
   }
   return canvas;
@@ -2519,7 +2811,7 @@ function quantizeChannel(v) {
  * краски сводятся так же, как в расчёте, иначе сепарации показывали бы не то,
  * что стоит в цифрах.
  */
-function separationFromImage(img, spec, gcr, underData) {
+function separationFromImage(img, spec, gcr, underData, spotIndex) {
   const d = img.data;
   const cache = new Map();
   for (let p = 0; p < d.length; p += 4) {
@@ -2538,8 +2830,8 @@ function separationFromImage(img, spec, gcr, underData) {
 
     let v = cache.get(key);
     if (v === undefined) {
-      const top = resolveInks(r, g, b, gcr, state.spotIndex);
-      const inks = merged ? mergeOverprint(top, resolveInks(r2, g2, b2, gcr, state.spotIndex)) : top;
+      const top = resolveInks(r, g, b, gcr, spotIndex);
+      const inks = merged ? mergeOverprint(top, resolveInks(r2, g2, b2, gcr, spotIndex)) : top;
       v = 255 - Math.round(inkValueFrom(inks, spec) * 255);
       cache.set(key, v);
     }
@@ -2548,7 +2840,7 @@ function separationFromImage(img, spec, gcr, underData) {
 }
 
 /** Рисует в canvas миниатюру страницы (композит или сепарацию) из уже собранного растра. */
-function drawPreviewInto(canvas, scan, spec, settings) {
+function drawPreviewInto(canvas, scan, spec, settings, spotIndex) {
   const src = scan.previewData;
   canvas.width = src.width; canvas.height = src.height;
   const ctx = canvas.getContext('2d');
@@ -2559,40 +2851,59 @@ function drawPreviewInto(canvas, scan, spec, settings) {
   const img = ctx.createImageData(src.width, src.height);
   img.data.set(src.data);
   const under = settings.useOverprint && scan.previewUnderData ? scan.previewUnderData.data : null;
-  separationFromImage(img, spec, settings.gcr, under);
+  separationFromImage(img, spec, settings.gcr, under, spotIndex);
   ctx.putImageData(img, 0, 0);
 }
 
 /* ---------- CSV ---------- */
 function exportCsv() {
-  const settings = readSettings();
-  const lines = [
-    ['Файл', state.fileName].join(';'),
-    ['Норма расхода CMYK, г/м²', num(settings.inkWeight, 3)].join(';'),
-    ['Норма расхода Pantone, г/м²', num(settings.spotInkWeight, 3)].join(';'),
-    ['Потери на приладку, кг на краску', num(settings.makeReadyLoss, 3)].join(';'),
-  ];
-  lines.push(['Страница', 'Краска', 'Покрытие %', 'Площадь базы м2', 'Площадь м2', 'Краски на лист г',
-    `На ${settings.copies} ${plural(settings.copies, 'лист', 'листа', 'листов')} кг (с учётом приладки)`].join(';'));
-  state.stats.forEach((st, i) => {
-    [...st.channels, ...st.spotChannels].forEach((ch) => {
-      const grams = ch.inkAreaM2 * inkWeightFor(ch, settings);
-      const tirazhKg = grams * settings.copies / 1000 + (ch.areaPercent > 0 ? settings.makeReadyLoss : 0);
-      lines.push([
-        i + 1, ch.label,
-        num(ch.coverage, 2), num(st.baseAreaM2, 4), num(ch.inkAreaM2, 4),
-        num(grams, 3), num(tirazhKg, 3),
-      ].join(';'));
+  if (!state.jobs.length) return;
+  const lines = [];
+
+  for (const job of state.jobs) {
+    const s = job.settings;
+    lines.push(['Файл', job.fileName].join(';'));
+    lines.push(['Норма расхода CMYK, г/м²', num(s.inkWeight, 3)].join(';'));
+    lines.push(['Норма расхода Pantone, г/м²', num(s.spotInkWeight, 3)].join(';'));
+    lines.push(['Потери на приладку, кг на краску', num(s.makeReadyLoss, 3)].join(';'));
+    lines.push(['Страница', 'Краска', 'Покрытие %', 'Площадь базы м2', 'Площадь м2', 'Краски на лист г',
+      `На ${s.copies} ${plural(s.copies, 'лист', 'листа', 'листов')} кг (с учётом приладки)`].join(';'));
+    job.stats.forEach((st, i) => {
+      [...st.channels, ...st.spotChannels].forEach((ch) => {
+        const grams = ch.inkAreaM2 * inkWeightFor(ch, s);
+        const tirazhKg = grams * s.copies / 1000 + (ch.areaPercent > 0 ? s.makeReadyLoss : 0);
+        lines.push([
+          i + 1, ch.label,
+          num(ch.coverage, 2), num(st.baseAreaM2, 4), num(ch.inkAreaM2, 4),
+          num(grams, 3), num(tirazhKg, 3),
+        ].join(';'));
+      });
+      lines.push([i + 1, 'Запечатанная площадь', num(st.printedPercent, 2), '', '', '', ''].join(';'));
+      lines.push([i + 1, 'Максимум TAC', num(st.maxTac, 0), '', '', '', ''].join(';'));
     });
-    lines.push([i + 1, 'Запечатанная площадь', num(st.printedPercent, 2), '', '', '', ''].join(';'));
-    lines.push([i + 1, 'Максимум TAC', num(st.maxTac, 0), '', '', '', ''].join(';'));
-  });
+    lines.push('');
+  }
+
+  if (state.jobs.length > 1) {
+    const entries = [];
+    for (const job of state.jobs) for (const stats of job.stats) entries.push({ stats, settings: job.settings });
+    const { rows, totalBaseM2 } = aggregateInks(entries);
+    lines.push(['Сводка по заказу', orderTitle()].join(';'));
+    lines.push(['Краска', 'Покрытие %', 'Площадь м2', 'На 1 комплект г', 'На весь заказ кг'].join(';'));
+    for (const ch of rows) {
+      lines.push([ch.label, num(ch.coverage, 2), num(ch.inkAreaM2, 4), num(ch.grams, 3), num(ch.tirazhKg, 3)].join(';'));
+    }
+    lines.push(['Площадь комплекта м2', num(totalBaseM2, 4)].join(';'));
+  }
+
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = (state.fileName.replace(/\.[^.]+$/, '') || 'ink-coverage') + '_запечатка.csv';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const base = state.jobs.length > 1 ? orderTitle().replace(/\s+/g, '_')
+    : state.jobs[0].fileName.replace(/\.[^.]+$/, '');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = (base || 'ink-coverage') + '_запечатка.csv';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
 /* ---------- утилиты ---------- */

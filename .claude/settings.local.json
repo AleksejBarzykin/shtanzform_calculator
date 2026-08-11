@@ -41,7 +41,8 @@
       "PowerShell($p = Get-NetTCPConnection -LocalPort 8123 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess; if \\($p\\) { Stop-Process -Id $p -Force; \"killed $p\" } else { \"none\" })",
       "Read(//c/Users/Adar/Desktop/**)",
       "Bash(node -e *)",
-      "Bash(node make-test-xrefstm.js test-xrefstm.pdf)"
+      "Bash(node make-test-xrefstm.js test-xrefstm.pdf)",
+      "Bash(node --check \"C:/Users/Adar/AppData/Local/Temp/claude/G--Claude-code-shtanzform-calculator/089c627d-2ca9-4a1e-b7a0-abd9c7ed75fc/scratchpad/chk.js\")"
     ]
   }
 }
