@@ -206,8 +206,11 @@ th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-trans
   margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);
 }
 
-/* Файлов может быть несколько: у каждого свой блок с параметрами и отчётом. */
-.file-group { display: flex; flex-direction: column; gap: 24px; }
+/* Файлов может быть несколько: у каждого свой блок с параметрами и отчётом.
+   Внутри блока карточки жмутся плотнее, между блоками разрыв заметно больше —
+   так сразу видно, где кончается один файл и начинается следующий. */
+#results { display: flex; flex-direction: column; gap: 38px; }
+.file-group { display: flex; flex-direction: column; gap: 12px; }
 .file-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
 .file-name { font-size: 18px; font-weight: 600; word-break: break-all; }
 .file-index { color: var(--text-secondary); font-weight: 400; margin-right: 6px; }
@@ -227,6 +230,38 @@ th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-trans
 .footer { text-align: center; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
 .hidden { display: none !important; }
 code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+/* =========================================================================
+   Печать. Отсюда получается PDF с настоящим текстом: браузер сам вшивает
+   шрифты, таблицы и плитки остаются вектором и правятся в Acrobat. На бумагу
+   уходит только отчёт — форма ввода, кнопки и шапка страницы скрыты.
+   ========================================================================= */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  /* Плашки красок, шкалы и заливки — это данные, а не украшение. Без этого
+     браузер печатает их только при включённой вручную «фоновой графике». */
+  html, body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { max-width: none; padding: 0; gap: 26px; }
+  /* Карточка загрузки целиком: пустая рамка на пол-листа отчёту не нужна. */
+  .header, .footer, #uploadCard, .card-actions, .file-remove,
+  .settings, .settings-title, .settings-actions, .lightbox { display: none !important; }
+  .card { box-shadow: none; border: 1px solid #d0d0d5; border-radius: 8px; padding: 14px 16px; }
+  .card, .tile, .file-group, tr { break-inside: avoid; }
+  #results { gap: 26px; }
+  .file-group { gap: 10px; }
+  .notice-box { border: 1px solid #e6dcc0; }
+  .preview canvas, .sep-item canvas { border-color: #d0d0d5; }
+  /* Лист A4 за вычетом полей — 703 px, и узкая раскладка схлопывала колонки:
+     превью растягивалось на всю ширину страницы. На бумаге держим ту же
+     раскладку, что на экране и в PNG. */
+  .page-body { grid-template-columns: 200px 1fr !important; }
+  .seps { grid-template-columns: repeat(auto-fit, minmax(38px, 1fr)) !important; }
+  /* Полоса прокрутки на бумаге просто обрезала бы таблицу. */
+  .table-wrap { overflow: visible; }
+
+  /* Печать одной карточки: показываем только путь до неё. */
+  body.print-one .print-keep > *:not(.print-keep):not(.print-target) { display: none !important; }
+}
 </style>
 </head>
 <body>
@@ -238,7 +273,7 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
     <p class="subtitle">Процент покрытия красками CMYK и Pantone относительно площади листа / монтажной области. PDF и AI, полностью локально в браузере.</p>
   </header>
 
-  <section class="card">
+  <section class="card" id="uploadCard">
     <div id="dropzone" class="dropzone">
       <input type="file" id="fileInput" accept=".pdf,.ai,application/pdf" multiple hidden>
       <p class="dropzone-text">Перетащите PDF или AI‑файлы сюда</p>
@@ -249,7 +284,9 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
     <div id="progress" class="progress hidden"><div class="spinner"></div><span id="progressText">Обработка…</span></div>
     <div id="errorBox" class="error-box hidden"></div>
     <div id="globalActions" class="card-actions hidden">
+      <button type="button" id="pdfAllBtn" class="btn btn-primary">Скачать весь отчёт в PDF</button>
       <button type="button" id="csvBtn" class="btn btn-secondary">Скачать CSV</button>
+      <span id="pdfAllStatus" class="shot-status"></span>
     </div>
   </section>
 
@@ -334,7 +371,7 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
     </div>
   </template>
 
-  <section id="results" class="hidden" style="display:flex; flex-direction:column; gap:24px"></section>
+  <section id="results" class="hidden"></section>
 
   <footer class="footer">
     <p>Файл никуда не отправляется — весь разбор идёт в браузере.<br>
@@ -1666,6 +1703,7 @@ const dropzone = el('dropzone'), fileInput = el('fileInput'), browseBtn = el('br
 const fileInfo = el('fileInfo'), progressEl = el('progress'), progressText = el('progressText');
 const errorBox = el('errorBox'), resultsEl = el('results');
 const csvBtn = el('csvBtn'), globalActions = el('globalActions'), settingsTpl = el('settingsTpl');
+const pdfAllBtn = el('pdfAllBtn'), pdfAllStatus = el('pdfAllStatus');
 
 /**
  * Работа = один загруженный файл со своим документом, растрами, найденными
@@ -1780,6 +1818,22 @@ document.addEventListener('drop', (e) => {
 });
 
 csvBtn.addEventListener('click', exportCsv);
+
+pdfAllBtn.addEventListener('click', async () => {
+  if (!state.jobs.length) return;
+  const say = (t, err) => { pdfAllStatus.textContent = t; pdfAllStatus.classList.toggle('err', !!err); };
+  say('Готовлю к печати…');
+  try {
+    const name = state.jobs.length > 1
+      ? orderTitle().replace(/\s+/g, '_') + '_запечатка'
+      : shotBaseName(state.jobs[0], null);
+    await printReport(null, name, (i, n) => say(`Готовлю превью ${i} из ${n}…`));
+    say('В окне печати выберите «Сохранить как PDF»');
+  } catch (e) {
+    console.error(e);
+    say('Не удалось подготовить печать: ' + e.message, true);
+  }
+});
 
 function showProgress(t) { progressText.textContent = t; progressEl.classList.remove('hidden'); }
 function hideProgress() { progressEl.classList.add('hidden'); }
@@ -2411,6 +2465,38 @@ const SHOT_SCALE = 3.2;                        // 96 dpi × 3,2 ≈ 307 dpi
 const SHOT_DPI = Math.round(96 * SHOT_SCALE);
 const SHOT_PAD = 24;                           // поля вокруг блока, иначе срежется тень
 
+// Превью на экране хранится миниатюрой в 220 пикселей — этого хватает для
+// показа, но при выводе оно растягивалось втрое и мылилось. Перед выгрузкой
+// страница дорисовывается из PDF заново, уже под размер печати.
+const EXPORT_PAGE_PX = 900;
+const EXPORT_SEP_PX = 400;
+
+/**
+ * Пересобирает превью внутри узла в высоком разрешении. Экранный размер задан
+ * стилями и не меняется — растёт только плотность пикселей. Повторные вызовы
+ * ничего не пересчитывают.
+ */
+async function upgradePreviews(root, onProgress) {
+  const canvases = [...root.querySelectorAll('canvas')].filter((c) => !c.dataset.hires);
+  const items = canvases
+    .map((canvas) => ({ canvas, view: state.viewItems.find((v) => v.canvas === canvas) }))
+    .filter((x) => x.view && x.view.job.pdfDoc);
+  for (let i = 0; i < items.length; i++) {
+    const { canvas, view } = items[i];
+    if (onProgress) onProgress(i + 1, items.length);
+    try {
+      const hi = await renderHiRes(view.job, view.pageIndex, 0, view.spec,
+        view.spec ? EXPORT_SEP_PX : EXPORT_PAGE_PX);
+      canvas.width = hi.width; canvas.height = hi.height;
+      canvas.getContext('2d').drawImage(hi, 0, 0);
+      hi.width = hi.height = 0;
+      canvas.dataset.hires = '1';
+    } catch (e) {
+      console.warn('preview upgrade failed', e); // остаётся миниатюра, выгрузка не срывается
+    }
+  }
+}
+
 async function cardToCanvas(card) {
   const rect = card.getBoundingClientRect();
   // Кнопки в снимок не попадают, поэтому их высоту вычитаем — иначе снизу
@@ -2508,7 +2594,8 @@ async function withPngDpi(blob, dpi) {
   return new Blob([out], { type: 'image/png' });
 }
 
-async function cardToBlob(card) {
+async function cardToBlob(card, onProgress) {
+  await upgradePreviews(card, onProgress);
   const canvas = await cardToCanvas(card);
   const raw = await new Promise((resolve, reject) => {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas.toBlob вернул пусто'))), 'image/png');
@@ -2518,11 +2605,50 @@ async function cardToBlob(card) {
 }
 
 /** job === null — снимок сводки по заказу. */
-function shotFileName(job, pageIndex) {
-  if (!job) return `${orderTitle().replace(/\s+/g, '_')}_сводка_${SHOT_DPI}dpi.png`;
+function shotBaseName(job, pageIndex) {
+  if (!job) return `${orderTitle().replace(/\s+/g, '_')}_сводка`;
   const base = (job.fileName || 'запечатка').replace(/\.[^.]+$/, '');
   const page = pageIndex === null ? 'итого' : `стр${pageIndex + 1}`;
-  return `${base}_${page}_запечатка_${SHOT_DPI}dpi.png`;
+  return `${base}_${page}_запечатка`;
+}
+
+function shotFileName(job, pageIndex) {
+  return `${shotBaseName(job, pageIndex)}.png`;
+}
+
+/**
+ * Печать в PDF. Текст остаётся текстом — шрифты вшивает сам браузер, поэтому
+ * отчёт открывается в Acrobat и Illustrator как правится, а не как картинка.
+ * node === null — печатается весь отчёт целиком.
+ */
+async function printReport(node, fileName, onProgress) {
+  await upgradePreviews(node || resultsEl, onProgress);
+  const marked = [];
+  if (node) {
+    document.body.classList.add('print-one');
+    for (let n = node.parentElement; n; n = n.parentElement) { n.classList.add('print-keep'); marked.push(n); }
+    node.classList.add('print-target');
+  }
+  // Имя вкладки становится именем файла по умолчанию в диалоге печати.
+  const title = document.title;
+  if (fileName) document.title = fileName;
+
+  let done = false;
+  let timer = 0;
+  const cleanup = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    document.title = title;
+    document.body.classList.remove('print-one');
+    marked.forEach((n) => n.classList.remove('print-keep'));
+    if (node) node.classList.remove('print-target');
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  window.print();
+  // Страховка: часть браузеров afterprint не присылает вовсе.
+  timer = setTimeout(cleanup, 60000);
 }
 
 function buildShotActions(card, job, pageIndex) {
@@ -2530,17 +2656,30 @@ function buildShotActions(card, job, pageIndex) {
   row.className = 'card-actions';
   row.setAttribute('data-noshot', '');
   row.innerHTML =
-    '<button type="button" class="btn btn-primary" data-act="save">Скачать отчёт</button>' +
-    '<button type="button" class="btn btn-green" data-act="copy">Копировать отчёт</button>' +
-    `<span class="shot-status">PNG ${SHOT_DPI} dpi</span>`;
+    '<button type="button" class="btn btn-primary" data-act="pdf">Скачать PDF</button>' +
+    '<button type="button" class="btn btn-secondary" data-act="save">Скачать PNG</button>' +
+    '<button type="button" class="btn btn-green" data-act="copy">Копировать картинку</button>' +
+    '<span class="shot-status"></span>';
 
   const status = row.querySelector('.shot-status');
   const say = (text, isError) => { status.textContent = text; status.classList.toggle('err', !!isError); };
+  const progress = (i, n) => { if (n) say(`Готовлю превью ${i} из ${n}…`); };
+
+  row.querySelector('[data-act=pdf]').addEventListener('click', async () => {
+    say('Готовлю к печати…');
+    try {
+      await printReport(card, shotBaseName(job, pageIndex), progress);
+      say('В окне печати выберите «Сохранить как PDF»');
+    } catch (e) {
+      console.error(e);
+      say('Не удалось подготовить печать: ' + e.message, true);
+    }
+  });
 
   row.querySelector('[data-act=save]').addEventListener('click', async () => {
     say('Готовлю картинку…');
     try {
-      const blob = await cardToBlob(card);
+      const blob = await cardToBlob(card, progress);
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = shotFileName(job, pageIndex);
@@ -2558,12 +2697,12 @@ function buildShotActions(card, job, pageIndex) {
     try {
       // Blob передаётся обещанием: иначе к моменту записи в буфер браузер уже
       // не считает клик «свежим» и отказывает в доступе.
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': cardToBlob(card) })]);
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': cardToBlob(card, progress) })]);
       say(`Скопировано · ${SHOT_DPI} dpi`);
     } catch (e) {
       console.error(e);
       try {
-        const blob = await cardToBlob(card);
+        const blob = await cardToBlob(card, progress);
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
         say(`Скопировано · ${SHOT_DPI} dpi`);
       } catch (e2) {
@@ -2744,11 +2883,11 @@ function closeLightbox() {
 }
 
 /** Растрирует страницу заново под размер показа; channel !== null — сепарация. */
-async function renderHiRes(job, pageIndex, cssWidth, spec) {
+async function renderHiRes(job, pageIndex, cssWidth, spec, wantPx) {
   if (!job.pdfDoc) throw new Error('документ закрыт');
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const cap = !spec ? HIRES_MAX_PX : HIRES_SEP_MAX_PX;
-  const targetPx = Math.max(320, Math.min(cap, Math.round(cssWidth * dpr)));
+  const targetPx = Math.max(320, Math.min(cap, Math.round(wantPx || cssWidth * dpr)));
 
   const page = await job.pdfDoc.getPage(pageIndex + 1);
   const vp1 = page.getViewport({ scale: 1 });
