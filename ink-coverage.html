@@ -67,7 +67,12 @@ body {
 .btn-green:hover { background: var(--green-hover); }
 .btn:disabled { opacity: .5; cursor: default; }
 
-.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px 20px; }
+/* Ровно три колонки: порядок полей в разметке рассчитан на такую сетку —
+   по столбцам получаются «база», «расход» и «пороги». На узком экране
+   раскладка схлопывается, но там колонки всё равно не сохранить. */
+.settings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px 20px; align-items: start; }
+@media (max-width: 820px) { .settings { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .settings { grid-template-columns: 1fr; } }
 .field { display: flex; flex-direction: column; gap: 6px; position: relative; }
 .field label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .03em; }
 .field select, .field input[type=number] {
@@ -242,24 +247,9 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
         </select>
         <div id="customSize" class="field-inline hidden">
           <input type="number" id="sheetW" value="700" min="1" step="0.1" title="Ширина, мм">
-          <input type="number" id="sheetH" value="1000" min="1" step="0.1" title="Высота, мм">
+          <input type="number" id="sheetH" value="500" min="1" step="0.1" title="Высота, мм">
         </div>
         <span class="hint">Проценты считаются как площадь краски ÷ площадь базы.</span>
-      </div>
-
-      <div class="field">
-        <label for="gcrRange">Чёрная генерация (GCR)</label>
-        <div class="range-row">
-          <input type="range" id="gcrRange" min="0" max="100" value="100" step="5">
-          <span class="range-val" id="gcrVal">100 %</span>
-        </div>
-        <span class="hint">100 % — серые и чёрные считаются как чистый K (минимум суммарной краски). 0 % — чёрный строится из CMY.</span>
-      </div>
-
-      <div class="field">
-        <label for="tacLimit">Лимит суммы красок (TAC)</label>
-        <input type="number" id="tacLimit" value="300" min="100" max="400" step="10">
-        <span class="hint">Для отчёта «доля площади с превышением».</span>
       </div>
 
       <div class="field">
@@ -269,9 +259,9 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
       </div>
 
       <div class="field">
-        <label for="spotInkWeight">Расход Pantone, г/м² при 100 %</label>
-        <input type="number" id="spotInkWeight" value="1.15" min="0" step="0.005">
-        <span class="hint">Плашечные краски кроют плотнее триадных, поэтому норма отдельная.</span>
+        <label for="whiteTh">Порог «есть краска», %</label>
+        <input type="number" id="whiteTh" value="3" min="0" max="20" step="0.5">
+        <span class="hint">Точка меньше этой на печати всё равно не держится. Влияет только на «площадь с краской» и на долю чистой бумаги, но не на сам процент покрытия.</span>
       </div>
 
       <div class="field">
@@ -281,9 +271,28 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
       </div>
 
       <div class="field">
+        <label for="spotInkWeight">Расход Pantone, г/м² при 100 %</label>
+        <input type="number" id="spotInkWeight" value="1.15" min="0" step="0.005">
+        <span class="hint">Плашечные краски кроют плотнее триадных, поэтому норма отдельная.</span>
+      </div>
+
+      <div class="field">
+        <label for="tacLimit">Лимит суммы красок (TAC)</label>
+        <input type="number" id="tacLimit" value="300" min="100" max="400" step="10">
+        <span class="hint">Для отчёта «доля площади с превышением».</span>
+      </div>
+
+      <div class="field">
         <label>Pantone / плашечные</label>
         <label class="check"><input type="checkbox" id="spotToggle" checked>
           <span>Выделять плашечные краски в отдельные каналы (по описанию Separation в файле)</span></label>
+      </div>
+
+      <div class="field">
+        <label for="makeReadyLoss">Потери на приладку, кг на краску</label>
+        <input type="number" id="makeReadyLoss" value="0.1" min="0" step="0.01">
+        <span class="hint">Постоянный расход на раскатку валов и остаток в красочном аппарате. Прибавляется один раз
+          к расходу каждой краски, фактически использованной в тираже, — не зависит от площади и тиража.</span>
       </div>
 
       <div class="field">
@@ -292,16 +301,11 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
           <span>Учитывать краску под объектами с наложением</span></label>
       </div>
 
-      <div class="field">
-        <label for="whiteTh">Порог «есть краска», %</label>
-        <input type="number" id="whiteTh" value="3" min="0" max="20" step="0.5">
-        <span class="hint">Точка меньше этой на печати всё равно не держится. Влияет только на «площадь с краской» и на долю чистой бумаги, но не на сам процент покрытия.</span>
-      </div>
-
     </div>
     <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap">
       <button type="button" id="recalcBtn" class="btn btn-primary" disabled>Пересчитать</button>
       <button type="button" id="csvBtn" class="btn btn-secondary" disabled>Скачать CSV</button>
+      <button type="button" id="resetBtn" class="btn btn-secondary">Очистить форму</button>
     </div>
     <div id="noticeBox" class="notice-box hidden"></div>
   </section>
@@ -1283,21 +1287,71 @@ const CHANNEL_META = [
 const SPOT_TOLERANCE = 7;  // допуск в единицах RGB — плашки заливаются ровным цветом
 const SPOT_WHITE_GUARD = 11; // ближе этого к белому тон неотличим от бумаги
 
+// Опорные процессные цвета для линий смеси «плашка ↔ заливка»: берутся из
+// самого растра — это самые частые цвета страницы, не лежащие на шкалах плашек.
+const ANCHOR_MIN_SHARE = 0.005; // реже этой доли листа цвет опорным не считаем
+const ANCHOR_MAX = 4;
+const ANCHOR_MERGE_DIST = 24;   // ближе этого два кандидата — один и тот же цвет
+// У концов линии смеси точки не ставим: они перебивают чистую плашку и чистую
+// заливку и подмешивают в них по проценту чужой краски.
+const BLEND_END_GUARD = 10;
+
+// Краска ниже этого покрытия в работе фактически не участвует: это пыль со
+// сглаженных краёв. В отчёт она не попадает — иначе получает приладочные кг.
+const INK_MIN_COVERAGE = 0.1; // %
+
 /**
  * Хеш точек всех тоновых шкал: ключ — цвет, огрублённый до 64 уровней на канал,
  * плюс соседние ячейки. Без него сопоставление стоило бы 101 замер расстояния
  * на каждый цвет страницы.
  */
-function buildSpotIndex(spots) {
+/** Точка на шкале плашки ближе tol к цвету? */
+function nearRamp(r, g, b, spot, tol) {
+  for (let t = 0; t < spot.ramp.length; t += 3) {
+    if (Math.hypot(r - spot.ramp[t], g - spot.ramp[t + 1], b - spot.ramp[t + 2]) < tol) return true;
+  }
+  return false;
+}
+
+/**
+ * Опорные процессные цвета для линий смеси. Гадать не приходится: берём самые
+ * частые цвета растра, отбрасывая бумагу и всё, что лежит на шкалах плашек.
+ */
+function collectProcessAnchors(scans, list, gcr) {
+  if (!scans || !scans.length) return [];
+  let total = 0;
+  const buckets = [];
+  for (const scan of scans) {
+    for (let i = 0; i < scan.bCount.length; i++) {
+      total += scan.bCount[i];
+      buckets.push([scan.bCount[i], scan.bR[i], scan.bG[i], scan.bB[i]]);
+    }
+  }
+  if (!total) return [];
+  buckets.sort((a, b) => b[0] - a[0]);
+
+  const anchors = [];
+  for (const [cnt, r, g, b] of buckets) {
+    if (cnt / total < ANCHOR_MIN_SHARE) break; // дальше только редкие цвета
+    if (Math.hypot(255 - r, 255 - g, 255 - b) < SPOT_WHITE_GUARD) continue; // бумага, её линия уже есть
+    if (list.some((s) => nearRamp(r, g, b, s, ANCHOR_MERGE_DIST))) continue; // это сама плашка
+    if (anchors.some((a) => Math.hypot(a.r - r, a.g - g, a.b - b) < ANCHOR_MERGE_DIST)) continue;
+    anchors.push({ r, g, b, cmyk: rgbToCmyk(r, g, b, gcr) });
+    if (anchors.length >= ANCHOR_MAX) break;
+  }
+  return anchors;
+}
+
+function buildSpotIndex(spots, scans, gcr) {
   // Краски с именами процессных в отдельные каналы не выделяются: их тон
   // и так попадает в свой канал через обычное обращение цвета.
   const list = spots.filter((s) => s.ramp && !s.process);
   if (!list.length) return null;
   const map = new Map();
 
-  const add = (r, g, b, inks) => {
+  const add = (r, g, b, inks, cmyk) => {
     if (Math.hypot(255 - r, 255 - g, 255 - b) < SPOT_WHITE_GUARD) return;
-    const point = { inks, r, g, b };
+    const point = { inks, cmyk: cmyk || null, r, g, b };
     const rk = r >> 2, gk = g >> 2, bk = b >> 2;
     for (let dr = -1; dr <= 1; dr++) {
       for (let dg = -1; dg <= 1; dg++) {
@@ -1337,14 +1391,37 @@ function buildSpotIndex(spots) {
     for (let j = i + 1; j < list.length; j++) {
       const a = list[i], b = list[j];
       const ai = a.ramp.length - 3, bi = b.ramp.length - 3;
+      const len = Math.hypot(a.ramp[ai] - b.ramp[bi], a.ramp[ai + 1] - b.ramp[bi + 1], a.ramp[ai + 2] - b.ramp[bi + 2]);
       for (let s = 1; s < 100; s++) {
         const f = s / 100;
+        if (f * len < BLEND_END_GUARD || (1 - f) * len < BLEND_END_GUARD) continue;
         add(
           b.ramp[bi] + f * (a.ramp[ai] - b.ramp[bi]),
           b.ramp[bi + 1] + f * (a.ramp[ai + 1] - b.ramp[bi + 1]),
           b.ramp[bi + 2] + f * (a.ramp[ai + 2] - b.ramp[bi + 2]),
           [{ spot: a, tint: f }, { spot: b, tint: 1 - f }],
         );
+      }
+    }
+  }
+
+  // Границы между плашкой и процессной заливкой. Сглаженный край и наложение
+  // дают линейную смесь двух красок; без этих линий пиксель не совпадает ни с
+  // одной шкалой и раскладывается обращением CMYK в краски, которых в работе
+  // нет: плашка поверх чёрного превращалась в magenta с cyan.
+  const anchors = collectProcessAnchors(scans, list, gcr);
+  for (const spot of list) {
+    const si = spot.ramp.length - 3;
+    const sr = spot.ramp[si], sg = spot.ramp[si + 1], sb = spot.ramp[si + 2];
+    for (const a of anchors) {
+      const len = Math.hypot(sr - a.r, sg - a.g, sb - a.b);
+      if (len < BLEND_END_GUARD * 3) continue; // цвета почти совпали, линии нет
+      for (let s = 1; s < 100; s++) {
+        const f = s / 100;
+        if (f * len < BLEND_END_GUARD || (1 - f) * len < BLEND_END_GUARD) continue;
+        // Доля f площади пикселя занята плашкой, остальное — заливкой.
+        add(a.r + f * (sr - a.r), a.g + f * (sg - a.g), a.b + f * (sb - a.b),
+          [{ spot, tint: f }], a.cmyk.map((v) => v * (1 - f)));
       }
     }
   }
@@ -1368,7 +1445,8 @@ function resolveInks(r, g, b, gcr, spotIndex) {
   const hit = matchSpot(r, g, b, spotIndex);
   if (hit) {
     const spots = hit.inks.filter((k) => k.tint > 0);
-    if (spots.length) return { cmyk: [0, 0, 0, 0], spots };
+    // На линии «плашка ↔ заливка» у точки есть и процессная часть.
+    if (spots.length) return { cmyk: hit.cmyk ? hit.cmyk.slice() : [0, 0, 0, 0], spots };
   }
   return { cmyk: rgbToCmyk(r, g, b, gcr), spots: [] };
 }
@@ -1485,12 +1563,14 @@ function computeStats(scan, settings, spotIndex) {
   const px2mm = scan.pxAreaMm2;
   const toPercent = (pixelSum) => baseAreaMm2 > 0 ? (pixelSum * px2mm / baseAreaMm2) * 100 : 0;
 
+  // Краски с пылевым покрытием из отчёта убираем: в работе их нет, а строка в
+  // расходе тянет за собой килограммы приладки.
   const channels = CHANNEL_META.map((meta, ch) => ({
     ...meta,
     coverage: toPercent(sums[ch]),               // средний % покрытия (для расхода краски)
     areaPercent: toPercent(areaPixels[ch]),      // доля площади, где краска вообще есть
     inkAreaM2: sums[ch] * px2mm / 1e6,
-  }));
+  })).filter((ch) => ch.coverage >= INK_MIN_COVERAGE);
 
   const spotChannels = [...spotSums.values()].map((rec) => ({
     key: 'spot',
@@ -1500,7 +1580,7 @@ function computeStats(scan, settings, spotIndex) {
     areaPercent: toPercent(rec.pixels),
     inkAreaM2: rec.sum * px2mm / 1e6,
     solidCmyk: rec.spot.solidCmyk,
-  })).sort((a, b) => b.coverage - a.coverage);
+  })).filter((ch) => ch.coverage >= INK_MIN_COVERAGE).sort((a, b) => b.coverage - a.coverage);
 
   colorRows.sort((a, b) => b.cnt - a.cnt);
   colorRows.forEach((row) => { row.pct = toPercent(row.cnt); });
@@ -1537,7 +1617,7 @@ const el = (id) => document.getElementById(id);
 const dropzone = el('dropzone'), fileInput = el('fileInput'), browseBtn = el('browseBtn');
 const fileInfo = el('fileInfo'), progressEl = el('progress'), progressText = el('progressText');
 const errorBox = el('errorBox'), noticeBox = el('noticeBox'), resultsEl = el('results');
-const recalcBtn = el('recalcBtn'), csvBtn = el('csvBtn');
+const recalcBtn = el('recalcBtn'), csvBtn = el('csvBtn'), resetBtn = el('resetBtn');
 
 const state = {
   fileName: '', scans: [], spots: [], deviceN: [], dpi: 300, stats: [],
@@ -1548,10 +1628,16 @@ const state = {
 // живёт дальше — при необходимости достаточно вернуть селектор.
 const ANALYSIS_DPI = 300;
 
+// Чёрная генерация (GCR) тоже зафиксирована: ползунок убран из интерфейса,
+// но settings.gcr используется в расчёте по-прежнему. 100 % — серые и чёрные
+// считаются чистым K, это и физически дешевле, и то самое поведение, которое
+// нужно для правильного распознавания чистого чёрного (см. rgbToCmyk).
+const GCR_FIXED = 1;
+
 function readSettings() {
   return {
     dpi: ANALYSIS_DPI,
-    gcr: +el('gcrRange').value / 100,
+    gcr: GCR_FIXED,
     base: el('baseSel').value,
     sheetW: +el('sheetW').value,
     sheetH: +el('sheetH').value,
@@ -1559,15 +1645,41 @@ function readSettings() {
     inkWeight: +el('inkWeight').value,
     spotInkWeight: +el('spotInkWeight').value,
     copies: +el('copies').value,
+    makeReadyLoss: +el('makeReadyLoss').value,
     useSpots: el('spotToggle').checked,
     useOverprint: el('overprintToggle').checked,
     whiteThreshold: +el('whiteTh').value / 100,
   };
 }
 
-el('gcrRange').addEventListener('input', () => { el('gcrVal').textContent = el('gcrRange').value + ' %'; });
 el('baseSel').addEventListener('change', () => {
   el('customSize').classList.toggle('hidden', el('baseSel').value !== 'custom');
+});
+
+/**
+ * Возвращает параметры к исходным значениям. Сами значения нигде не
+ * дублируются — берутся из разметки (defaultValue / defaultChecked /
+ * option[selected]), поэтому правка поля в вёрстке автоматически меняет и то,
+ * к чему сбрасывается форма.
+ */
+function resetSettingsForm() {
+  const card = el('settingsCard');
+  card.querySelectorAll('input').forEach((input) => {
+    if (input.type === 'checkbox' || input.type === 'radio') input.checked = input.defaultChecked;
+    else input.value = input.defaultValue;
+  });
+  card.querySelectorAll('select').forEach((select) => {
+    const def = [...select.options].find((o) => o.defaultSelected);
+    select.value = def ? def.value : select.options[0].value;
+  });
+  // Видимость полей своего формата листа переключается обработчиком, а он на
+  // программную смену значения не срабатывает.
+  el('customSize').classList.toggle('hidden', el('baseSel').value !== 'custom');
+}
+
+resetBtn.addEventListener('click', () => {
+  resetSettingsForm();
+  if (state.stats.length) renderResults();
 });
 
 browseBtn.addEventListener('click', () => fileInput.click());
@@ -1602,6 +1714,8 @@ async function handleFile(file) {
   clearError();
   resultsEl.classList.add('hidden');
   recalcBtn.disabled = csvBtn.disabled = true;
+  // Новый файл — новая работа: параметры от предыдущей не переносятся.
+  resetSettingsForm();
   state.file = file;
   state.fileName = file.name;
 
@@ -1707,7 +1821,7 @@ async function handleFile(file) {
 
 function renderResults() {
   const settings = readSettings();
-  state.spotIndex = settings.useSpots ? buildSpotIndex(state.spots) : null;
+  state.spotIndex = settings.useSpots ? buildSpotIndex(state.spots, state.scans, settings.gcr) : null;
   state.stats = state.scans.map((scan) => computeStats(scan, settings, state.spotIndex));
   resultsEl.innerHTML = '';
   state.viewItems = []; // список для карусели пересобирается вместе с карточками
@@ -1788,12 +1902,15 @@ function buildTotalCard(settings) {
   const pages = state.stats.length;
   const totalBaseM2 = state.stats.reduce((s, st) => s + st.baseAreaM2, 0);
 
-  // Средневзвешенное по площади покрытие.
+  // Средневзвешенное по площади покрытие. occurrences считает страницы, на
+  // которых краска реально нанесена, — для потерь на приладку: каждая такая
+  // страница означает отдельную приладку этой краски.
   const agg = new Map();
   for (const st of state.stats) {
     for (const ch of [...st.channels, ...st.spotChannels]) {
-      const cur = agg.get(ch.label) || { label: ch.label, css: ch.css, key: ch.key, inkAreaM2: 0 };
+      const cur = agg.get(ch.label) || { label: ch.label, css: ch.css, key: ch.key, inkAreaM2: 0, occurrences: 0 };
       cur.inkAreaM2 += ch.inkAreaM2;
+      if (ch.areaPercent > 0) cur.occurrences++;
       agg.set(ch.label, cur);
     }
   }
@@ -1840,6 +1957,7 @@ function buildPageCard(i, stats, settings) {
   const right = document.createElement('div');
   const all = [...stats.channels, ...stats.spotChannels].map((ch) => ({
     ...ch, grams: ch.inkAreaM2 * inkWeightFor(ch, settings),
+    occurrences: ch.areaPercent > 0 ? 1 : 0,
   }));
   right.innerHTML =
     channelTiles(all) +
@@ -1880,24 +1998,32 @@ function inkWeightFor(ch, settings) {
 function inkTable(rows, settings, baseAreaM2) {
   const body = rows.map((ch) => {
     const grams = ch.inkAreaM2 * inkWeightFor(ch, settings);
+    // Потери на приладку — константа за краску, не за лист: добавляются к
+    // тиражу отдельно от чистого переноса, только если краска реально нанесена.
+    const occurrences = ch.occurrences !== undefined ? ch.occurrences : (ch.areaPercent > 0 ? 1 : 0);
+    const tirazhKg = grams * settings.copies / 1000 + occurrences * settings.makeReadyLoss;
     return `<tr>
       <td><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${ch.css}"></span> ${escapeHtml(ch.label)}</td>
       <td>${fmt(ch.coverage, 2)}</td>
       <td>${fmt(ch.inkAreaM2, 4)}</td>
       <td>${fmt(grams, 3)}</td>
-      <td>${fmt(grams * settings.copies / 1000, 3)}</td>
+      <td>${fmt(tirazhKg, 3)}</td>
     </tr>`;
   }).join('');
   return `<h3>Расход краски</h3><div class="table-wrap"><table>
     <thead><tr><th>Краска</th><th>Покрытие, %</th><th>Площадь, м²</th><th>На 1 лист, г</th><th>На ${settings.copies} ${plural(settings.copies, 'лист', 'листа', 'листов')}, кг</th></tr></thead>
-    <tbody>${body}</tbody></table></div>`;
+    <tbody>${body}</tbody></table></div>
+    <p class="page-meta" style="margin-top:8px">В колонку тиража включены потери на приладку —
+    ${fmt(settings.makeReadyLoss, settings.makeReadyLoss < 1 ? 2 : 1)} кг на каждую использованную краску.</p>`;
 }
 
 function buildSeparationPreviews(scan, stats, settings, pageIndex) {
   const wrap = document.createElement('div');
   wrap.className = 'seps';
 
-  const specs = CHANNEL_META.map((meta, ch) => ({ label: meta.label, spec: { type: 'cmyk', ch } }))
+  // Сепарации показываем только для красок, попавших в отчёт.
+  const specs = CHANNEL_META.map((meta, ch) => ({ label: meta.label, key: meta.key, spec: { type: 'cmyk', ch } }))
+    .filter(({ key }) => stats.channels.some((c) => c.key === key))
     .concat(stats.spotChannels.map((sc) => ({ label: sc.label, spec: { type: 'spot', name: sc.label } })));
 
   specs.forEach(({ label, spec }) => {
@@ -1927,6 +2053,15 @@ function buildAccuracyCard(settings) {
     Наивная формула <code>K = 1 − max(R,G,B)</code> здесь не применяется — она даёт для чистого циана «100C + 24M + 5K».</p>
     <p><b>Покрытие, %</b> — это средняя доля краски по площади базы: сумма тонов всех пикселей, делённая на площадь базы.
     Именно это число нужно для расчёта расхода краски. «Площадь с краской» — доля площади, где краска вообще присутствует.</p>
+    <p><b>Расход на тираж.</b> Колонка «На N листов, кг» — это чистый перенос краски на бумагу (площадь × норма г/м²)
+    плюс ${fmt(settings.makeReadyLoss, settings.makeReadyLoss < 1 ? 2 : 1)} кг на каждую краску, которая реально
+    нанесена в этой работе, — технологические потери на раскатку валов и остаток в красочном аппарате при приладке.
+    Эта добавка не зависит ни от площади, ни от тиража и прибавляется один раз за краску; для многостраничного
+    файла — один раз на каждой странице, где эта краска встречается, поскольку у разных страниц разная приладка.
+    Меняется полем «Потери на приладку» в параметрах.</p>
+    <p><b>Отсечка.</b> Краска с покрытием ниже ${fmt(INK_MIN_COVERAGE, 1)} % в отчёт не попадает: на сглаженных краях
+    и в местах наложения всегда остаются доли процента посторонних красок, а каждая строка в расходе тянет за собой
+    килограммы приладки.</p>
     <p><b>Что учитывается точно:</b> плашки и заливки, растровые изображения, прозрачность и наложения после
     сведения — всё, что видно на оттиске.</p>
     <p><b>Плашечные краски (Pantone).</b> Тоновая шкала не вычисляется по описанию из файла, а снимается замером:
@@ -1945,8 +2080,9 @@ function buildAccuracyCard(settings) {
     объекте нет, берётся из подложки; где верхний объект красит — он замещает её.</p>
     <p><b>Ограничения:</b></p>
     <ul>
-      <li>Разделение чёрного и CMY (GCR) в файле однозначно не восстановимо — сейчас ${Math.round(settings.gcr * 100)} %.
-        Для файлов с богатым чёрным поставьте GCR ниже.</li>
+      <li>Разделение чёрного и CMY в файле однозначно не восстановимо: серые и чёрные всегда считаются чистым K
+        (минимум суммарной краски) — так дешевле физически и так снимается неоднозначность округления при
+        растрировании. Если в оригинале чёрный набран смесью CMY, здесь он всё равно уйдёт в K.</li>
       <li>Если наложение задано одним состоянием, а прозрачность — другим, погасить объект не удастся: тогда
         коррекция просто не сработает и краска под ним не добавится. Лишней краски при этом не появится —
         второй растр не может показать больше, чем нарисовано.</li>
@@ -2434,16 +2570,18 @@ function exportCsv() {
     ['Файл', state.fileName].join(';'),
     ['Норма расхода CMYK, г/м²', num(settings.inkWeight, 3)].join(';'),
     ['Норма расхода Pantone, г/м²', num(settings.spotInkWeight, 3)].join(';'),
+    ['Потери на приладку, кг на краску', num(settings.makeReadyLoss, 3)].join(';'),
   ];
   lines.push(['Страница', 'Краска', 'Покрытие %', 'Площадь базы м2', 'Площадь м2', 'Краски на лист г',
-    `На ${settings.copies} ${plural(settings.copies, 'лист', 'листа', 'листов')} кг`].join(';'));
+    `На ${settings.copies} ${plural(settings.copies, 'лист', 'листа', 'листов')} кг (с учётом приладки)`].join(';'));
   state.stats.forEach((st, i) => {
     [...st.channels, ...st.spotChannels].forEach((ch) => {
       const grams = ch.inkAreaM2 * inkWeightFor(ch, settings);
+      const tirazhKg = grams * settings.copies / 1000 + (ch.areaPercent > 0 ? settings.makeReadyLoss : 0);
       lines.push([
         i + 1, ch.label,
         num(ch.coverage, 2), num(st.baseAreaM2, 4), num(ch.inkAreaM2, 4),
-        num(grams, 3), num(grams * settings.copies / 1000, 3),
+        num(grams, 3), num(tirazhKg, 3),
       ].join(';'));
     });
     lines.push([i + 1, 'Запечатанная площадь', num(st.printedPercent, 2), '', '', '', ''].join(';'));
