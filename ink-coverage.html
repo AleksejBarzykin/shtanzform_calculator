@@ -10,6 +10,13 @@
 :root {
   --bg: #f5f5f7;
   --surface: #ffffff;
+  --surface-2: #e8e8ed;      /* вторичные кнопки, крестик удаления файла */
+  --surface-2-hover: #dcdce1;
+  --input-bg: #ffffff;
+  --track-bg: #eeeeee;       /* дорожка шкалы покрытия под цветной полоской */
+  --code-bg: #f0f0f2;
+  --swatch-border: rgba(0,0,0,.12);
+  --dropzone-hover-bg: #f0f7ff;
   --text: #1d1d1f;
   --text-secondary: #6e6e73;
   --border: #e5e5e7;
@@ -31,6 +38,32 @@
   --ink-k: #1d1d1f;
   font-synthesis: none;
 }
+/* Тёмная тема: переключатель ставит атрибут на <html>, чтобы сработать
+   раньше первой отрисовки и не мигнуть светлым при загрузке. Плашки красок
+   (--ink-*) и белый лист превью не трогаем — это цвет данных, а не интерфейса. */
+:root[data-theme="dark"] {
+  --bg: #1c1c1e;
+  --surface: #2c2c2e;
+  --surface-2: #3a3a3c;
+  --surface-2-hover: #48484a;
+  --input-bg: #232325;
+  --track-bg: #3a3a3c;
+  --code-bg: #3a3a3c;
+  --swatch-border: rgba(255,255,255,.18);
+  --dropzone-hover-bg: rgba(0,113,227,.14);
+  --text: #f2f2f3;
+  --text-secondary: #98989d;
+  --border: #3d3d40;
+  --accent: #0a84ff;
+  --accent-hover: #379eff;
+  --green: #30a955;
+  --green-hover: #3cc465;
+  --error-bg: #3a2323;
+  --error-text: #ff6b6b;
+  --notice-bg: #3a331c;
+  --notice-text: #e0c476;
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.4);
+}
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -40,9 +73,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 .page { max-width: 1000px; margin: 0 auto; padding: 48px 24px 64px; display: flex; flex-direction: column; gap: 24px; }
-.header { text-align: center; }
+.header { text-align: center; position: relative; }
 .header h1 { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; }
 .subtitle { font-size: 15px; color: var(--text-secondary); margin: 0; }
+.theme-toggle {
+  position: absolute; top: 2px; right: 0; width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 17px; line-height: 1;
+  transition: background .15s, border-color .15s;
+}
+.theme-toggle:hover { background: var(--surface-2); }
+/* Пиктограмма — луна или солнце — зависит от того, какая тема СТАНЕТ активной
+   после клика, а не от текущей: это подсказка действия, а не индикатор. */
+.theme-toggle-icon::before { content: '🌙'; }
+:root[data-theme="dark"] .theme-toggle-icon::before { content: '☀️'; }
 .card { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 24px; }
 .card h2 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
 .card h3 { font-size: 15px; font-weight: 600; margin: 20px 0 10px; }
@@ -51,7 +95,7 @@ body {
   border: 2px dashed var(--border); border-radius: var(--radius-md);
   padding: 36px 20px; text-align: center; transition: .15s; cursor: pointer;
 }
-.dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: #f0f7ff; }
+.dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: var(--dropzone-hover-bg); }
 .dropzone-text { font-size: 15px; margin: 0 0 4px; }
 .dropzone-subtext { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px; }
 
@@ -61,8 +105,8 @@ body {
 }
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:hover { background: var(--accent-hover); }
-.btn-secondary { background: #e8e8ed; color: var(--text); }
-.btn-secondary:hover { background: #dcdce1; }
+.btn-secondary { background: var(--surface-2); color: var(--text); }
+.btn-secondary:hover { background: var(--surface-2-hover); }
 .btn-green { background: var(--green); color: #fff; }
 .btn-green:hover { background: var(--green-hover); }
 .btn:disabled { opacity: .5; cursor: default; }
@@ -77,7 +121,7 @@ body {
 .field label { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .03em; }
 .field select, .field input[type=number] {
   font-family: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); background: #fff; color: var(--text); width: 100%;
+  border-radius: var(--radius-sm); background: var(--input-bg); color: var(--text); width: 100%;
 }
 /* Подсказки убраны из потока и всплывают при наведении на название параметра.
    Задержка нужна, чтобы они не мелькали, когда мышь просто проходит по блоку;
@@ -119,13 +163,15 @@ body {
 .tile-label { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .tile-value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .tile-sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-variant-numeric: tabular-nums; }
-.swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,.12); flex: none; }
-.bar { height: 5px; border-radius: 3px; background: #eee; margin-top: 8px; overflow: hidden; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--swatch-border); flex: none; }
+.bar { height: 5px; border-radius: 3px; background: var(--track-bg); margin-top: 8px; overflow: hidden; }
 .bar > i { display: block; height: 100%; border-radius: 3px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
-th:first-child, td:first-child { text-align: left; font-variant-numeric: normal; }
+/* nowrap — иначе «Magenta» и «PANTONE …» переносились на вторую строку:
+   таблица теснее превью, и браузер ужимал первую колонку сильнее остальных. */
+th:first-child, td:first-child { text-align: left; font-variant-numeric: normal; white-space: nowrap; }
 th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: .02em; }
 .table-wrap { overflow-x: auto; }
 
@@ -215,7 +261,7 @@ th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-trans
 .file-name { font-size: 18px; font-weight: 600; word-break: break-all; }
 .file-index { color: var(--text-secondary); font-weight: 400; margin-right: 6px; }
 .file-remove {
-  border: none; background: #e8e8ed; color: var(--text-secondary); flex: none;
+  border: none; background: var(--surface-2); color: var(--text-secondary); flex: none;
   width: 30px; height: 30px; border-radius: 50%; font-size: 18px; line-height: 1;
   cursor: pointer; font-family: inherit; transition: .15s;
 }
@@ -229,7 +275,7 @@ th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-trans
 
 .footer { text-align: center; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
 .hidden { display: none !important; }
-code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 /* =========================================================================
    Печать. Отсюда получается PDF с настоящим текстом: браузер сам вшивает
@@ -241,6 +287,15 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
      браузера с датой и адресом файла: рисовать её становится негде. Отступы
      тогда даёт сам отчёт, а не лист. */
   @page { size: A4; margin: 0; }
+  /* Бумага светлая всегда, даже если на экране включена тёмная тема: иначе
+     карточки печатались бы тёмно-серым фоном с почти белым текстом поверх.
+     Селектор :root[data-theme="dark"] повторён здесь той же специфичностью,
+     что и в самом переключателе темы, — иначе то правило выигрывало бы и
+     внутри печати, потому что специфичность атрибутного селектора выше. */
+  :root, :root[data-theme="dark"] {
+    --bg: #f5f5f7; --surface: #ffffff; --text: #1d1d1f; --text-secondary: #6e6e73;
+    --border: #e5e5e7; --notice-bg: #fff8e6; --notice-text: #8a6d1a;
+  }
   /* Плашки красок, шкалы и заливки — это данные, а не украшение. Без этого
      браузер печатает их только при включённой вручную «фоновой графике». */
   html, body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -270,12 +325,24 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
   body.print-one .print-keep > *:not(.print-keep):not(.print-target) { display: none !important; }
 }
 </style>
+<script>
+// Тема ставится здесь, до отрисовки body, — иначе страница на долю секунды
+// мигнёт светлой и только потом переключится в сохранённую тёмную.
+(function () {
+  var saved = localStorage.getItem('inkTheme');
+  var dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  if (dark) document.documentElement.dataset.theme = 'dark';
+})();
+</script>
 </head>
 <body>
 
 <div class="page">
 
   <header class="header">
+    <button type="button" id="themeToggle" class="theme-toggle" title="Тёмная тема" aria-label="Переключить тёмную тему">
+      <span class="theme-toggle-icon"></span>
+    </button>
     <h1>Расчёт запечатки</h1>
     <p class="subtitle">Процент покрытия красками CMYK и Pantone относительно площади листа / монтажной области. PDF и AI, полностью локально в браузере.</p>
   </header>
@@ -1735,6 +1802,16 @@ const fileInfo = el('fileInfo'), progressEl = el('progress'), progressText = el(
 const errorBox = el('errorBox'), resultsEl = el('results');
 const csvBtn = el('csvBtn'), globalActions = el('globalActions'), settingsTpl = el('settingsTpl');
 const pdfAllBtn = el('pdfAllBtn'), pdfAllStatus = el('pdfAllStatus');
+
+// Само переключение темы стоит инлайновым скриптом в <head> — он же и решает
+// начальное состояние (сохранённое или системное), чтобы страница не мигала
+// светлым перед перекраской. Тут только реакция на клик.
+el('themeToggle').addEventListener('click', () => {
+  const dark = document.documentElement.dataset.theme !== 'dark';
+  if (dark) document.documentElement.dataset.theme = 'dark';
+  else delete document.documentElement.dataset.theme;
+  localStorage.setItem('inkTheme', dark ? 'dark' : 'light');
+});
 
 /**
  * Работа = один загруженный файл со своим документом, растрами, найденными
