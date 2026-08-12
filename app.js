@@ -1011,7 +1011,7 @@ function buildPageReportBlock(page, totalPages) {
   priceInputEl.className = 'price-input';
   priceInputEl.min = '0';
   priceInputEl.step = '0.01';
-  priceInputEl.value = '0';
+  priceInputEl.value = '850';
   priceInputEl.inputMode = 'decimal';
   const priceUnit = document.createElement('span');
   priceUnit.className = 'price-unit';
