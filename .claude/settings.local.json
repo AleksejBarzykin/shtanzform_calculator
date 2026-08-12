@@ -42,7 +42,8 @@
       "Read(//c/Users/Adar/Desktop/**)",
       "Bash(node -e *)",
       "Bash(node make-test-xrefstm.js test-xrefstm.pdf)",
-      "Bash(node --check \"C:/Users/Adar/AppData/Local/Temp/claude/G--Claude-code-shtanzform-calculator/089c627d-2ca9-4a1e-b7a0-abd9c7ed75fc/scratchpad/chk.js\")"
+      "Bash(node --check \"C:/Users/Adar/AppData/Local/Temp/claude/G--Claude-code-shtanzform-calculator/089c627d-2ca9-4a1e-b7a0-abd9c7ed75fc/scratchpad/chk.js\")",
+      "PowerShell($d='C:\\\\Users\\\\Adar\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\G--Claude-code-shtanzform-calculator\\\\089c627d-2ca9-4a1e-b7a0-abd9c7ed75fc\\\\scratchpad'; Copy-Item 'G:\\\\design\\\\Монтажи\\\\2026\\\\08_August\\\\12.08.2026\\\\12082026_2_Produkt_osh_barjer-super_RED_32.5_06-02_mont.pdf' \"$d\\\\test-mont.pdf\"; Copy-Item 'C:\\\\Users\\\\Adar\\\\Desktop\\\\Produkt_osh_barjer-super_RED_32.5_06-02_test_uf-lak.pdf' \"$d\\\\test-uv.pdf\"; Remove-Item \"$d\\\\chk.js\" -Force -ErrorAction SilentlyContinue; \"ok\")"
     ]
   }
 }

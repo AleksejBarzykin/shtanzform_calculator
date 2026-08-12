@@ -237,23 +237,30 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
    уходит только отчёт — форма ввода, кнопки и шапка страницы скрыты.
    ========================================================================= */
 @media print {
-  @page { size: A4; margin: 12mm; }
+  /* Нулевые поля страницы — единственный способ убрать служебную строку
+     браузера с датой и адресом файла: рисовать её становится негде. Отступы
+     тогда даёт сам отчёт, а не лист. */
+  @page { size: A4; margin: 0; }
   /* Плашки красок, шкалы и заливки — это данные, а не украшение. Без этого
      браузер печатает их только при включённой вручную «фоновой графике». */
   html, body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .page { max-width: none; padding: 0; gap: 26px; }
+  /* Боковые поля работают на каждом листе, вертикальные — на первом и
+     последнем: горизонтальный отступ у сквозного блока постоянен, а
+     вертикальный отрабатывает один раз за весь поток. */
+  .page { max-width: none; padding: 8mm 9mm; gap: 26px; }
   /* Карточка загрузки целиком: пустая рамка на пол-листа отчёту не нужна. */
   .header, .footer, #uploadCard, .card-actions, .file-remove,
   .settings, .settings-title, .settings-actions, .lightbox { display: none !important; }
-  .card { box-shadow: none; border: 1px solid #d0d0d5; border-radius: 8px; padding: 14px 16px; }
+  /* Запас сверху и снизу держит сама карточка: на листе-продолжении она
+     начинается от самого края, и без него текст ушёл бы в непечатаемую зону. */
+  .card { box-shadow: none; border: 1px solid #d0d0d5; border-radius: 8px; padding: 7mm; }
   .card, .tile, .file-group, tr { break-inside: avoid; }
   #results { gap: 26px; }
   .file-group { gap: 10px; }
   .notice-box { border: 1px solid #e6dcc0; }
   .preview canvas, .sep-item canvas { border-color: #d0d0d5; }
-  /* Лист A4 за вычетом полей — 703 px, и узкая раскладка схлопывала колонки:
-     превью растягивалось на всю ширину страницы. На бумаге держим ту же
-     раскладку, что на экране и в PNG. */
+  /* Узкая раскладка на бумаге не нужна: превью растягивалось бы на всю ширину
+     листа. Держим ту же раскладку, что на экране и в PNG. */
   .page-body { grid-template-columns: 200px 1fr !important; }
   .seps { grid-template-columns: repeat(auto-fit, minmax(38px, 1fr)) !important; }
   /* Полоса прокрутки на бумаге просто обрезала бы таблицу. */
@@ -333,7 +340,8 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
           <label for="spotInkWeight">Расход Pantone, г/м² при 100 %</label>
           <input type="number" id="spotInkWeight" value="1.15" min="0" step="0.005">
           <span class="hint">Плашечные краски кроют плотнее триадных, поэтому норма отдельная.
-            Исключение — лак: краска, в названии которой есть слово «lak» или «лак», всегда считается по 0,45 г/м².</span>
+            Исключения — лаки: краска со словом «lak» или «лак» в названии считается по 0,45 г/м²,
+            а УФ‑лак («uf-lak») — по норме из соседнего поля.</span>
         </div>
 
         <div class="field">
@@ -343,9 +351,14 @@ code { background: #f0f0f2; padding: 1px 5px; border-radius: 4px; font-size: 12p
         </div>
 
         <div class="field">
-          <label>Pantone / плашечные</label>
-          <label class="check"><input type="checkbox" id="spotToggle" checked>
-            <span>Выделять плашечные краски в отдельные каналы (по описанию Separation в файле)</span></label>
+          <label for="uvLakWeight">Расход УФ лака, г/м² при 100 %</label>
+          <input type="number" id="uvLakWeight" value="12" min="0" step="0.005">
+          <span class="hint">По этой норме считается плашка с названием «uf-lak» в любом написании.
+            12 г/м² — это 0,003 кг лака на лист 640×500 мм, где лак покрывает 0,2499 м².</span>
+          <!-- Разделение плашек на каналы теперь всегда включено: выключать его
+               незачем, а поле в сетке занимало место. Сам флажок оставлен, чтобы
+               расчёт по-прежнему читал параметр. -->
+          <input type="checkbox" id="spotToggle" checked hidden>
         </div>
 
         <div class="field">
@@ -1382,7 +1395,15 @@ const BLEND_END_GUARD = 10;
 
 // Краска ниже этого покрытия в работе фактически не участвует: это пыль со
 // сглаженных краёв. В отчёт она не попадает — иначе получает приладочные кг.
-const INK_MIN_COVERAGE = 0.1; // %
+// Доля считается от площади страницы, а не от выбранной базы: иначе краска
+// появлялась и исчезала от одной только смены формата листа.
+const INK_MIN_COVERAGE = 0.1; // % площади страницы
+
+// Плашка учитывается, только если где-то легла плотно: у настоящей краски
+// всегда есть заливка. Совпадения по светлым тонам даёт сам макет — так
+// «проявлялся» лак со скрытого слоя, которого на оттиске нет вовсе.
+const SPOT_SOLID_TINT = 0.7;      // с какого тона заливка считается плотной
+const SPOT_SOLID_MIN_AREA = 0.05; // % площади страницы
 
 /**
  * Хеш точек всех тоновых шкал: ключ — цвет, огрублённый до 64 уровней на канал,
@@ -1579,9 +1600,10 @@ function computeStats(scan, settings, spotIndex) {
       tac += cmyk[ch];
     }
     for (const hit of spotList) {
-      const rec = spotSums.get(hit.spot.name) || { sum: 0, pixels: 0, spot: hit.spot };
+      const rec = spotSums.get(hit.spot.name) || { sum: 0, pixels: 0, solid: 0, spot: hit.spot };
       rec.sum += hit.tint * cnt;
       if (hit.tint >= inkTh) rec.pixels += cnt;
+      if (hit.tint >= SPOT_SOLID_TINT) rec.solid += cnt;
       spotSums.set(hit.spot.name, rec);
       tac += hit.tint;
     }
@@ -1647,6 +1669,11 @@ function computeStats(scan, settings, spotIndex) {
 
   const px2mm = scan.pxAreaMm2;
   const toPercent = (pixelSum) => baseAreaMm2 > 0 ? (pixelSum * px2mm / baseAreaMm2) * 100 : 0;
+  // Решение «краска есть или это шум» принимается по странице, а показывается
+  // покрытие по выбранной базе: иначе один и тот же файл давал разный состав
+  // красок в зависимости от введённого формата листа.
+  const pagePixels = scan.totalPixels || 1;
+  const toPageShare = (pixelSum) => pixelSum / pagePixels * 100;
 
   // Краски с пылевым покрытием из отчёта убираем: в работе их нет, а строка в
   // расходе тянет за собой килограммы приладки.
@@ -1655,7 +1682,8 @@ function computeStats(scan, settings, spotIndex) {
     coverage: toPercent(sums[ch]),               // средний % покрытия (для расхода краски)
     areaPercent: toPercent(areaPixels[ch]),      // доля площади, где краска вообще есть
     inkAreaM2: sums[ch] * px2mm / 1e6,
-  })).filter((ch) => ch.coverage >= INK_MIN_COVERAGE);
+    pageShare: toPageShare(sums[ch]),
+  })).filter((ch) => ch.pageShare >= INK_MIN_COVERAGE);
 
   const spotChannels = [...spotSums.values()].map((rec) => ({
     key: 'spot',
@@ -1665,7 +1693,10 @@ function computeStats(scan, settings, spotIndex) {
     areaPercent: toPercent(rec.pixels),
     inkAreaM2: rec.sum * px2mm / 1e6,
     solidCmyk: rec.spot.solidCmyk,
-  })).filter((ch) => ch.coverage >= INK_MIN_COVERAGE).sort((a, b) => b.coverage - a.coverage);
+    pageShare: toPageShare(rec.sum),
+    solidShare: toPageShare(rec.solid),
+  })).filter((ch) => ch.pageShare >= INK_MIN_COVERAGE && ch.solidShare >= SPOT_SOLID_MIN_AREA)
+    .sort((a, b) => b.coverage - a.coverage);
 
   colorRows.sort((a, b) => b.cnt - a.cnt);
   colorRows.forEach((row) => { row.pct = toPercent(row.cnt); });
@@ -1759,6 +1790,7 @@ function readSettings(form) {
     tacLimit: +fld(form, 'tacLimit').value,
     inkWeight: +fld(form, 'inkWeight').value,
     spotInkWeight: +fld(form, 'spotInkWeight').value,
+    uvLakWeight: +fld(form, 'uvLakWeight').value,
     copies: +fld(form, 'copies').value,
     makeReadyLoss: +fld(form, 'makeReadyLoss').value,
     useSpots: fld(form, 'spotToggle').checked,
@@ -1939,7 +1971,7 @@ async function loadJob(file, prefix) {
     file, fileName: file.name,
     spots: spotInfo.spots, deviceN: spotInfo.deviceN, spotScanFailed: spotInfo.failed,
     probedCount: 0, overprintStates: spotInfo.overprintStates || [], overprintApplied: false,
-    pdfDoc: null, underDoc: null, scans: [], stats: [], spotIndex: null,
+    pdfDoc: null, underDoc: null, scans: [], stats: [], spotIndex: null, layers: [],
     form: cloneSettingsForm(), settings: null,
   };
 
@@ -1951,6 +1983,21 @@ async function loadJob(file, prefix) {
   } catch (e) {
     console.error(e);
     throw new Error('не удалось открыть документ; для AI‑файла нужна опция «PDF‑совместимый файл» при сохранении');
+  }
+
+  // Слои файла. Скрытые pdf.js не рисует — значит их и на оттиске не будет,
+  // и краска с них в расчёт попадать не должна.
+  try {
+    const cfg = await job.pdfDoc.getOptionalContentConfig();
+    const groups = cfg && cfg.getGroups ? cfg.getGroups() : null;
+    if (groups) {
+      job.layers = Object.keys(groups).map((id) => {
+        const g = cfg.getGroup(id);
+        return { name: (g && g.name) || id, visible: cfg.isVisible({ type: 'OCG', id }) };
+      });
+    }
+  } catch (e) {
+    console.warn('optional content', e);
   }
 
   if (job.spots.length) {
@@ -2090,8 +2137,26 @@ function renderNotices(job) {
       'отдельными каналами не выделяются — по спецификации PDF их тон идёт в свой канал CMYK.');
   }
 
+  if (job.layers.length) {
+    const shown = job.layers.filter((l) => l.visible).map((l) => escapeHtml(l.name));
+    const hidden = job.layers.filter((l) => !l.visible).map((l) => escapeHtml(l.name));
+    items.push(`Слои файла: считаются видимые — <b>${shown.join(', ') || 'нет'}</b>.` +
+      (hidden.length ? ` Скрытые (${hidden.join(', ')}) не рисуются и в расчёт не входят.` : ''));
+  }
+
   if (real.length) {
     items.push(`Плашечные краски (Separation) в файле: <b>${real.map((s) => escapeHtml(s.name)).join(', ')}</b>.`);
+    // Плашка объявлена, но плотной заливки на видимых слоях нет — обычно это
+    // краска со скрытого слоя: в структуре она осталась, а на оттиске её нет.
+    const counted = new Set();
+    for (const st of job.stats) for (const c of st.spotChannels) counted.add(c.label);
+    const missing = withRamp.filter((s) => !counted.has(s.name));
+    if (missing.length && settings.useSpots) {
+      const one = missing.length === 1;
+      items.push(`${one ? 'Плашка' : 'Плашки'} ${missing.map((s) => escapeHtml(s.name)).join(', ')} ` +
+        `${one ? 'объявлена' : 'объявлены'} в файле, но плотной заливки на видимых слоях нет — ` +
+        `в расчёт ${one ? 'она не включена' : 'они не включены'}.`);
+    }
     if (withRamp.length && settings.useSpots) {
       const probed = real.filter((s) => s.rampSource === 'probe').length;
       const how = probed === withRamp.length ? 'снята замером — служебная страница с плашками 0…100 % отрисована самим pdf.js'
@@ -2300,18 +2365,23 @@ function channelTiles(rows) {
     </div>`).join('') + '</div>';
 }
 
-// Отдельные нормы для конкретных плашек. Имя разбирается на слова, регистр не
-// важен, поэтому под правило подходят и «Lak», и «lak UV», и «ЛАК выборочный»,
-// а слитные написания вроде «lakoviy» — нет: слово должно стоять целиком.
+/**
+ * Отдельные нормы для конкретных плашек. Имя разбирается на слова, регистр и
+ * разделители не важны: под правило подходят «Lak», «UF-LAK», «uf_lak»,
+ * «ЛАК выборочный». Слитные написания вроде «lakoviy» — нет, слово должно
+ * стоять целиком. Правило срабатывает, если в имени нашлось по слову из
+ * каждой группы; порядок правил важен — частные идут первыми.
+ */
 const NAMED_INK_WEIGHTS = [
-  { words: ['lak', 'лак'], weight: 0.45 }, // г/м² при 100 %
+  { words: [['uf', 'уф'], ['lak', 'лак']], weight: (s) => s.uvLakWeight },
+  { words: [['lak', 'лак']], weight: () => 0.45 }, // г/м² при 100 %
 ];
 
 /** Именная норма по названию краски или null, если краска обычная. */
-function namedInkWeight(label) {
+function namedInkWeight(label, settings) {
   const words = String(label).toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
   for (const rule of NAMED_INK_WEIGHTS) {
-    if (words.some((w) => rule.words.includes(w))) return rule.weight;
+    if (rule.words.every((group) => words.some((w) => group.includes(w)))) return rule.weight(settings);
   }
   return null;
 }
@@ -2319,7 +2389,7 @@ function namedInkWeight(label) {
 /** Норма расхода: у плашечных красок своя, у части из них — именная. */
 function inkWeightFor(ch, settings) {
   if (ch.key !== 'spot') return settings.inkWeight;
-  const named = namedInkWeight(ch.label);
+  const named = namedInkWeight(ch.label, settings);
   return named !== null ? named : settings.spotInkWeight;
 }
 
@@ -2400,9 +2470,17 @@ function buildAccuracyCard(settings) {
     файла — один раз на каждой странице, где эта краска встречается, поскольку у разных страниц разная приладка.
     В сводке по заказу так же: каждый лист — отдельный прогон и отдельная приладка.
     Меняется полем «Потери на приладку» в параметрах.</p>
-    <p><b>Отсечка.</b> Краска с покрытием ниже ${fmt(INK_MIN_COVERAGE, 1)} % в отчёт не попадает: на сглаженных краях
-    и в местах наложения всегда остаются доли процента посторонних красок, а каждая строка в расходе тянет за собой
-    килограммы приладки.</p>
+    <p><b>Отсечка.</b> Краска с покрытием ниже ${fmt(INK_MIN_COVERAGE, 1)} % площади страницы в отчёт не попадает: на
+    сглаженных краях и в местах наложения всегда остаются доли процента посторонних красок, а каждая строка в расходе
+    тянет за собой килограммы приладки. Порог считается от страницы, а не от выбранной базы, — иначе состав красок
+    менялся бы от одного только формата листа.</p>
+    <p><b>Плашка должна где-то лечь плотно.</b> Плашечная краска учитывается, только если заливки тоном от
+    ${fmt(SPOT_SOLID_TINT * 100, 0)} % набирается хотя бы на ${fmt(SPOT_SOLID_MIN_AREA, 2)} % площади страницы.
+    Причина: цвет плашки восстанавливается по совпадению с её тоновой шкалой, и светлые тона самого макета могут
+    случайно попасть в допуск. У настоящей краски плотная заливка есть всегда, у случайных совпадений — нет.
+    Так из расчёта уходит краска со скрытого слоя: в структуре файла она объявлена, а на оттиске её нет.
+    Обратная сторона: плашка, использованная <i>только</i> светлыми тонами и нигде не залитая плотно, в отчёт
+    не попадёт.</p>
     <p><b>Что учитывается точно:</b> плашки и заливки, растровые изображения, прозрачность и наложения после
     сведения — всё, что видно на оттиске.</p>
     <p><b>Плашечные краски (Pantone).</b> Тоновая шкала не вычисляется по описанию из файла, а снимается замером:
