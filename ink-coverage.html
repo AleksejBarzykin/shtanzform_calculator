@@ -1757,6 +1757,43 @@ const GCR_FIXED = 1;
 const fld = (form, name) => form.querySelector(`[data-f="${name}"]`);
 
 /**
+ * Обход полей по Tab — сверху вниз по колонке, потом в начало следующей.
+ * Порядок в разметке другой: он рассчитан на то, чтобы сетка из трёх колонок
+ * заполнялась построчно и колонки читались как «база», «расход» и «пороги».
+ */
+const TAB_ORDER = [
+  'baseSel', 'sheetW', 'sheetH', 'copies', 'uvLakWeight',
+  'inkWeight', 'spotInkWeight', 'makeReadyLoss',
+  'whiteTh', 'tacLimit', 'overprintToggle',
+];
+
+/** Поля в нужном порядке, без скрытых: на них фокус всё равно не встаёт. */
+function tabFields(form) {
+  return TAB_ORDER.map((name) => fld(form, name)).filter((node) => node && node.offsetParent !== null);
+}
+
+function wireFormKeys(form) {
+  form.addEventListener('keydown', (e) => {
+    const field = e.target.closest('[data-f]');
+    if (!field) return;
+
+    // Enter завершает ввод: значение уже в поле, редактировать больше нечего.
+    if (e.key === 'Enter') { e.preventDefault(); field.blur(); return; }
+
+    if (e.key !== 'Tab') return;
+    const order = tabFields(form);
+    const i = order.indexOf(field);
+    if (i < 0) return;
+    const next = order[i + (e.shiftKey ? -1 : 1)];
+    // На краях списка ход отдаём браузеру: дальше по разметке идут кнопки.
+    if (!next) return;
+    e.preventDefault();
+    next.focus();
+    if (typeof next.select === 'function') next.select();
+  });
+}
+
+/**
  * Клон формы параметров под очередной файл. Идентификаторы полей получают
  * суффикс — иначе на странице с тремя файлами оказалось бы три элемента с
  * одним id, и подписи с подсказками перестали бы попадать в своё поле.
@@ -1772,6 +1809,7 @@ function cloneSettingsForm() {
     form.querySelectorAll(`label[for="${old}"]`).forEach((label) => { label.htmlFor = node.id; });
   });
   fld(form, 'baseSel').addEventListener('change', () => syncCustomSize(form));
+  wireFormKeys(form);
   return form;
 }
 
@@ -2682,12 +2720,16 @@ async function cardToBlob(card, onProgress) {
   return withPngDpi(raw, SHOT_DPI);
 }
 
-/** job === null — снимок сводки по заказу. */
+/**
+ * Имя выгрузки — это имя макета. Уточнение добавляется только там, где без
+ * него файлы столкнулись бы: у многостраничного документа и у сводки.
+ * job === null — сводка по заказу.
+ */
 function shotBaseName(job, pageIndex) {
   if (!job) return `${orderTitle().replace(/\s+/g, '_')}_сводка`;
   const base = (job.fileName || 'запечатка').replace(/\.[^.]+$/, '');
-  const page = pageIndex === null ? 'итого' : `стр${pageIndex + 1}`;
-  return `${base}_${page}_запечатка`;
+  if (pageIndex === null) return `${base}_итого`;
+  return job.scans.length > 1 ? `${base}_стр${pageIndex + 1}` : base;
 }
 
 function shotFileName(job, pageIndex) {
