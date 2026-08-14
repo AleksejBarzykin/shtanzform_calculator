@@ -91,13 +91,30 @@ body {
 .card h2 { font-size: 18px; font-weight: 600; margin: 0 0 16px; }
 .card h3 { font-size: 15px; font-weight: 600; margin: 20px 0 10px; }
 
+.dropzones { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 640px) { .dropzones { grid-template-columns: 1fr; } }
 .dropzone {
   border: 2px dashed var(--border); border-radius: var(--radius-md);
-  padding: 36px 20px; text-align: center; transition: .15s; cursor: pointer;
+  padding: 28px 18px; text-align: center; transition: .15s; cursor: pointer;
+  display: flex; flex-direction: column; justify-content: center;
 }
 .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: var(--dropzone-hover-bg); }
-.dropzone-text { font-size: 15px; margin: 0 0 4px; }
+/* Дописывать некуда, пока ничего не загружено. */
+.dropzone.disabled { opacity: .45; pointer-events: none; }
+.dropzone-text { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
 .dropzone-subtext { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px; }
+
+/* Галочки найденных красок */
+.ink-toggles { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
+.ink-toggle {
+  display: flex; align-items: center; gap: 7px; font-size: 13px;
+  cursor: pointer; user-select: none;
+}
+.ink-toggle input { margin: 0; }
+/* Выключенная краска гасится, но остаётся читаемой: её видно, что она есть в
+   файле и просто исключена вручную. */
+.ink-toggle.off { color: var(--text-secondary); }
+.ink-toggle.off .swatch { opacity: .35; }
 
 .btn {
   border: none; border-radius: 980px; padding: 9px 20px; font-size: 14px; font-weight: 500;
@@ -310,6 +327,12 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
      начинается от самого края, и без него текст ушёл бы в непечатаемую зону. */
   .card { box-shadow: none; border: 1px solid #d0d0d5; border-radius: 8px; padding: 7mm; }
   .card, .tile, .file-group, tr { break-inside: avoid; }
+  /* Каждый файл заказа — со своего листа A4, и сводка отдельно от файлов.
+     Внутри файла отдельный лист получают вторая и последующие страницы:
+     шапка с параметрами и первая страница остаются вместе, иначе на короткий
+     одностраничный отчёт уходило бы два листа. */
+  #results > * + * { break-before: page; }
+  .file-group > .card:nth-child(n+3) { break-before: page; }
   #results { gap: 26px; }
   .file-group { gap: 10px; }
   .notice-box { border: 1px solid #e6dcc0; }
@@ -321,8 +344,11 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
   /* Полоса прокрутки на бумаге просто обрезала бы таблицу. */
   .table-wrap { overflow: visible; }
 
-  /* Печать одной карточки: показываем только путь до неё. */
+  /* Печать одной карточки: показываем только путь до неё. Разрывы при этом
+     не нужны — печатается ровно один блок. */
   body.print-one .print-keep > *:not(.print-keep):not(.print-target) { display: none !important; }
+  body.print-one #results > * + *,
+  body.print-one .file-group > .card:nth-child(n+3) { break-before: auto; }
 }
 </style>
 <script>
@@ -348,11 +374,22 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
   </header>
 
   <section class="card" id="uploadCard">
-    <div id="dropzone" class="dropzone">
-      <input type="file" id="fileInput" accept=".pdf,.ai,application/pdf" multiple hidden>
-      <p class="dropzone-text">Перетащите PDF или AI‑файлы сюда</p>
-      <p class="dropzone-subtext">можно сразу несколько — по файлу на каждый лист заказа</p>
-      <button type="button" id="browseBtn" class="btn btn-secondary">Выбрать файлы</button>
+    <!-- Две равные зоны: левая начинает новый заказ, правая дописывает файлы
+         к уже разобранным. Режим определяется тем, куда именно бросили файл. -->
+    <div class="dropzones">
+      <div id="dropzone" class="dropzone" data-mode="replace">
+        <input type="file" id="fileInput" accept=".pdf,.ai,application/pdf" multiple hidden>
+        <p class="dropzone-text">Новый расчёт</p>
+        <p class="dropzone-subtext">перетащите PDF или AI‑файлы сюда — прежние закроются</p>
+        <button type="button" id="browseBtn" class="btn btn-secondary">Выбрать файлы</button>
+      </div>
+      <!-- disabled снимается, как только появится хоть один разобранный файл -->
+      <div id="dropzoneAdd" class="dropzone disabled" data-mode="append">
+        <input type="file" id="fileInputAdd" accept=".pdf,.ai,application/pdf" multiple hidden>
+        <p class="dropzone-text">Добавить к открытым</p>
+        <p class="dropzone-subtext">файлы встанут в конец списка, расчёт прежних сохранится</p>
+        <button type="button" id="browseAddBtn" class="btn btn-secondary">Добавить файлы</button>
+      </div>
     </div>
     <div id="fileInfo" class="page-meta hidden" style="margin-top:12px"></div>
     <div id="progress" class="progress hidden"><div class="spinner"></div><span id="progressText">Обработка…</span></div>
@@ -360,6 +397,7 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
     <div id="globalActions" class="card-actions hidden">
       <button type="button" id="pdfAllBtn" class="btn btn-primary">Скачать весь отчёт в PDF</button>
       <button type="button" id="csvBtn" class="btn btn-secondary">Скачать CSV</button>
+      <button type="button" id="clearAllBtn" class="btn btn-secondary">Очистить всё</button>
       <span id="pdfAllStatus" class="shot-status"></span>
     </div>
   </section>
@@ -447,7 +485,15 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
         <button type="button" class="btn btn-secondary" data-act="apply-all">Применить ко всем файлам</button>
         <button type="button" class="btn btn-secondary" data-act="reset">Очистить форму</button>
       </div>
-      <div id="noticeBox" class="notice-box hidden"></div>
+      <!-- Найденные краски: галочками можно выключить любую из отчёта, превью
+           и выгрузок. Блок свёрнут по умолчанию — он справочный. -->
+      <details class="collapse" id="inkBlock">
+        <summary>Краски в файле</summary>
+        <div class="collapse-body">
+          <div id="inkToggles" class="ink-toggles"></div>
+          <div id="noticeBox" class="notice-box hidden"></div>
+        </div>
+      </details>
     </div>
   </template>
 
@@ -1644,11 +1690,15 @@ function mergeOverprint(top, under) {
   return { cmyk, spots };
 }
 
-function computeStats(scan, settings, spotIndex) {
+function computeStats(scan, settings, spotIndex, disabledInks) {
   const { bCount, bR, bG, bB } = scan;
   const n = bCount.length;
   const gcr = settings.gcr;
   const inkTh = settings.whiteThreshold; // доля (0..1) суммарной краски
+  // Краски, снятые галочкой. Считаются они по-прежнему — иначе не из чего было
+  // бы построить сам список галочек, — но в суммарные показатели и в отчёт
+  // не идут, как будто этой краски в работе нет.
+  const off = disabledInks || new Set();
 
   const sums = [0, 0, 0, 0];       // Σ (доля краски × пикселей)
   const areaPixels = [0, 0, 0, 0]; // пикселей, где краска присутствует
@@ -1664,7 +1714,7 @@ function computeStats(scan, settings, spotIndex) {
     for (let ch = 0; ch < 4; ch++) {
       sums[ch] += cmyk[ch] * cnt;
       if (cmyk[ch] >= inkTh) areaPixels[ch] += cnt;
-      tac += cmyk[ch];
+      if (!off.has(CHANNEL_META[ch].label)) tac += cmyk[ch];
     }
     for (const hit of spotList) {
       const rec = spotSums.get(hit.spot.name) || { sum: 0, pixels: 0, solid: 0, spot: hit.spot };
@@ -1672,7 +1722,7 @@ function computeStats(scan, settings, spotIndex) {
       if (hit.tint >= inkTh) rec.pixels += cnt;
       if (hit.tint >= SPOT_SOLID_TINT) rec.solid += cnt;
       spotSums.set(hit.spot.name, rec);
-      tac += hit.tint;
+      if (!off.has(hit.spot.name)) tac += hit.tint;
     }
     if (tac >= inkTh) printedPixels += cnt;
     tacSum += tac * cnt;
@@ -1744,7 +1794,7 @@ function computeStats(scan, settings, spotIndex) {
 
   // Краски с пылевым покрытием из отчёта убираем: в работе их нет, а строка в
   // расходе тянет за собой килограммы приладки.
-  const channels = CHANNEL_META.map((meta, ch) => ({
+  const foundChannels = CHANNEL_META.map((meta, ch) => ({
     ...meta,
     coverage: toPercent(sums[ch]),               // средний % покрытия (для расхода краски)
     areaPercent: toPercent(areaPixels[ch]),      // доля площади, где краска вообще есть
@@ -1752,7 +1802,7 @@ function computeStats(scan, settings, spotIndex) {
     pageShare: toPageShare(sums[ch]),
   })).filter((ch) => ch.pageShare >= INK_MIN_COVERAGE);
 
-  const spotChannels = [...spotSums.values()].map((rec) => ({
+  const foundSpots = [...spotSums.values()].map((rec) => ({
     key: 'spot',
     label: rec.spot.name,
     css: rampCss(rec.spot),
@@ -1765,12 +1815,19 @@ function computeStats(scan, settings, spotIndex) {
   })).filter((ch) => ch.pageShare >= INK_MIN_COVERAGE && ch.solidShare >= SPOT_SOLID_MIN_AREA)
     .sort((a, b) => b.coverage - a.coverage);
 
+  // Полный список найденного нужен для галочек: выключенная краска должна
+  // остаться в списке, иначе её нельзя было бы включить обратно.
+  const foundInks = [...foundChannels, ...foundSpots]
+    .map(({ label, key, css }) => ({ label, key, css }));
+  const channels = foundChannels.filter((ch) => !off.has(ch.label));
+  const spotChannels = foundSpots.filter((ch) => !off.has(ch.label));
+
   colorRows.sort((a, b) => b.cnt - a.cnt);
   colorRows.forEach((row) => { row.pct = toPercent(row.cnt); });
 
   return {
     baseAreaMm2, baseLabel,
-    channels, spotChannels,
+    channels, spotChannels, foundInks,
     totalCoverage: channels.reduce((s, c) => s + c.coverage, 0) + spotChannels.reduce((s, c) => s + c.coverage, 0),
     printedPercent: toPercent(printedPixels),
     blankPercent: Math.max(0, 100 - toPercent(printedPixels)),
@@ -1798,10 +1855,11 @@ function rampCss(spot) {
 
 const el = (id) => document.getElementById(id);
 const dropzone = el('dropzone'), fileInput = el('fileInput'), browseBtn = el('browseBtn');
+const dropzoneAdd = el('dropzoneAdd'), fileInputAdd = el('fileInputAdd'), browseAddBtn = el('browseAddBtn');
 const fileInfo = el('fileInfo'), progressEl = el('progress'), progressText = el('progressText');
 const errorBox = el('errorBox'), resultsEl = el('results');
 const csvBtn = el('csvBtn'), globalActions = el('globalActions'), settingsTpl = el('settingsTpl');
-const pdfAllBtn = el('pdfAllBtn'), pdfAllStatus = el('pdfAllStatus');
+const pdfAllBtn = el('pdfAllBtn'), pdfAllStatus = el('pdfAllStatus'), clearAllBtn = el('clearAllBtn');
 
 // Само переключение темы стоит инлайновым скриптом в <head> — он же и решает
 // начальное состояние (сохранённое или системное), чтобы страница не мигала
@@ -1952,19 +2010,37 @@ browseBtn.addEventListener('click', () => fileInput.click());
 dropzone.addEventListener('click', (e) => { if (e.target !== browseBtn) fileInput.click(); });
 fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFiles([...fileInput.files]); });
 
+browseAddBtn.addEventListener('click', () => fileInputAdd.click());
+dropzoneAdd.addEventListener('click', (e) => { if (e.target !== browseAddBtn) fileInputAdd.click(); });
+fileInputAdd.addEventListener('change', () => {
+  if (fileInputAdd.files.length) handleFiles([...fileInputAdd.files], { append: true });
+});
+
+// Подсвечиваем ту зону, над которой сейчас курсор: от неё зависит, начнётся
+// новый расчёт или файлы допишутся к открытым.
 ['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => {
-  e.preventDefault(); dropzone.classList.add('dragover');
+  e.preventDefault();
+  const zone = e.target.closest ? e.target.closest('.dropzone') : null;
+  dropzone.classList.toggle('dragover', zone !== dropzoneAdd);
+  dropzoneAdd.classList.toggle('dragover', zone === dropzoneAdd);
 }));
 ['dragleave', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => {
   e.preventDefault();
-  if (ev === 'drop' || e.target === document.documentElement) dropzone.classList.remove('dragover');
+  if (ev === 'drop' || e.target === document.documentElement) {
+    dropzone.classList.remove('dragover');
+    dropzoneAdd.classList.remove('dragover');
+  }
 }));
 document.addEventListener('drop', (e) => {
   const files = e.dataTransfer ? [...e.dataTransfer.files] : [];
-  if (files.length) handleFiles(files);
+  if (!files.length) return;
+  // Бросок мимо зон считаем новым расчётом — так было и раньше.
+  const zone = e.target.closest ? e.target.closest('.dropzone') : null;
+  handleFiles(files, { append: zone === dropzoneAdd });
 });
 
 csvBtn.addEventListener('click', exportCsv);
+clearAllBtn.addEventListener('click', clearAll);
 
 pdfAllBtn.addEventListener('click', async () => {
   if (!state.jobs.length) return;
@@ -1972,7 +2048,7 @@ pdfAllBtn.addEventListener('click', async () => {
   say('Готовлю к печати…');
   try {
     const name = state.jobs.length > 1
-      ? orderTitle().replace(/\s+/g, '_') + '_запечатка'
+      ? orderTitle().replace(/\s+/g, '_')
       : shotBaseName(state.jobs[0], null);
     await printReport(null, name, (i, n) => say(`Готовлю превью ${i} из ${n}…`));
     say('В окне печати выберите «Сохранить как PDF»');
@@ -1991,19 +2067,25 @@ function clearError() { errorBox.classList.add('hidden'); }
  * Новый набор файлов — новый заказ: всё загруженное раньше закрывается.
  * Файлы разбираются по очереди; сбой на одном не отменяет остальные.
  */
-async function handleFiles(files) {
+async function handleFiles(files, opts) {
   // Разбор набора идёт минутами; второй заход в это время снёс бы документы
   // из-под работающего растрирования.
   if (state.busy) return;
+  // Дописывать можно только к чему-то уже разобранному.
+  const append = !!(opts && opts.append) && state.jobs.length > 0;
   state.busy = true;
   clearError();
-  resultsEl.classList.add('hidden');
-  csvBtn.disabled = true;
-  await clearJobs();
+  if (!append) {
+    resultsEl.classList.add('hidden');
+    csvBtn.disabled = true;
+    await clearJobs();
+  }
 
   const failed = [];
+  const already = state.jobs.length;
   for (let i = 0; i < files.length; i++) {
-    const prefix = files.length > 1 ? `Файл ${i + 1} из ${files.length}: ` : '';
+    const total = already + files.length;
+    const prefix = total > 1 ? `Файл ${already + i + 1} из ${total}: ` : '';
     try {
       const job = await loadJob(files[i], prefix);
       if (job) state.jobs.push(job);
@@ -2015,7 +2097,9 @@ async function handleFiles(files) {
 
   hideProgress();
   state.busy = false;
-  fileInput.value = ''; // иначе повторный выбор тех же файлов не вызовет change
+  // Иначе повторный выбор тех же файлов не вызовет change.
+  fileInput.value = '';
+  fileInputAdd.value = '';
   if (failed.length) {
     showError('Не удалось разобрать: ' + failed.map(escapeHtml).join('<br>'));
   }
@@ -2023,6 +2107,16 @@ async function handleFiles(files) {
   csvBtn.disabled = false;
   updateFileInfo();
   renderAll();
+}
+
+/** Убирает все файлы разом, не трогая настройки страницы. */
+async function clearAll() {
+  if (state.busy) return;
+  await clearJobs();
+  resultsEl.classList.add('hidden');
+  csvBtn.disabled = true;
+  clearError();
+  updateFileInfo();
 }
 
 /** Закрывает документы всех работ и очищает список. */
@@ -2052,6 +2146,8 @@ async function removeJob(job) {
 }
 
 function updateFileInfo() {
+  // Дописывать нечего, пока ничего не загружено, — вторая зона гасится.
+  dropzoneAdd.classList.toggle('disabled', !state.jobs.length);
   if (!state.jobs.length) {
     fileInfo.classList.add('hidden');
     globalActions.classList.add('hidden');
@@ -2088,6 +2184,7 @@ async function loadJob(file, prefix) {
     probedCount: 0, overprintStates: spotInfo.overprintStates || [], overprintApplied: false,
     pdfDoc: null, underDoc: null, scans: [], stats: [], spotIndex: null, layers: [],
     form: cloneSettingsForm(), settings: null,
+    disabledInks: new Set(), // краски, снятые галочкой в блоке «Краски в файле»
   };
 
   try {
@@ -2169,7 +2266,7 @@ function renderAll() {
     job.settings = readSettings(job.form);
     job.spotIndex = job.settings.useSpots
       ? buildSpotIndex(job.spots, job.scans, job.settings.gcr) : null;
-    job.stats = job.scans.map((scan) => computeStats(scan, job.settings, job.spotIndex));
+    job.stats = job.scans.map((scan) => computeStats(scan, job.settings, job.spotIndex, job.disabledInks));
   }
 
   // Формы живут в state.jobs и переживают перерисовку: очистка контейнера их
@@ -2212,6 +2309,7 @@ function buildFileGroup(job, index) {
   wireFormActions(job);
   // Переносить параметры некуда, пока файл один.
   job.applyAllBtn.classList.toggle('hidden', state.jobs.length < 2);
+  renderInkToggles(job);
   renderNotices(job);
   group.appendChild(head);
 
@@ -2226,10 +2324,47 @@ function wireFormActions(job) {
   job.wired = true;
   const act = (name) => job.form.querySelector(`[data-act="${name}"]`);
   act('recalc').addEventListener('click', () => renderAll());
-  act('reset').addEventListener('click', () => { resetSettingsForm(job.form); renderAll(); });
+  act('reset').addEventListener('click', () => {
+    resetSettingsForm(job.form);
+    job.disabledInks.clear(); // «очистить форму» возвращает и снятые краски
+    renderAll();
+  });
   const applyAll = act('apply-all');
   applyAll.addEventListener('click', () => { copySettingsToAll(job.form); renderAll(); });
   job.applyAllBtn = applyAll;
+}
+
+/**
+ * Галочки найденных красок. Снятая краска не попадает ни в плитки, ни в
+ * таблицу расхода, ни в сепарации, ни в выгрузки, и не участвует в суммарном
+ * покрытии и TAC — как будто её в работе нет.
+ */
+function renderInkToggles(job) {
+  const box = fld(job.form, 'inkToggles');
+  box.innerHTML = '';
+
+  // Список собирается по всем страницам файла: на разных страницах может быть
+  // разный набор красок, а галочка нужна одна на файл.
+  const seen = new Map();
+  for (const st of job.stats) {
+    for (const ink of st.foundInks) if (!seen.has(ink.label)) seen.set(ink.label, ink);
+  }
+  if (!seen.size) return;
+
+  for (const ink of seen.values()) {
+    const on = !job.disabledInks.has(ink.label);
+    const label = document.createElement('label');
+    label.className = 'ink-toggle' + (on ? '' : ' off');
+    label.innerHTML = `<input type="checkbox"${on ? ' checked' : ''}>` +
+      `<span class="swatch" style="background:${ink.css}"></span>` +
+      `<span>${escapeHtml(ink.label)}</span>`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) job.disabledInks.delete(ink.label);
+      else job.disabledInks.add(ink.label);
+      renderAll();
+    });
+    box.appendChild(label);
+  }
 }
 
 function renderNotices(job) {
@@ -2311,7 +2446,8 @@ function renderNotices(job) {
       : 'Плашечных красок (Separation/DeviceN) в файле не найдено — работа считается как чистый CMYK.');
   }
 
-  noticeBox.innerHTML = '<b>Краски в файле</b><ul><li>' + items.join('</li><li>') + '</li></ul>';
+  // Заголовок теперь на самом раскрывающемся блоке, дублировать его не нужно.
+  noticeBox.innerHTML = '<ul style="margin:0"><li>' + items.join('</li><li>') + '</li></ul>';
   noticeBox.classList.remove('hidden');
 }
 
@@ -3237,7 +3373,7 @@ function exportCsv() {
     : state.jobs[0].fileName.replace(/\.[^.]+$/, '');
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = (base || 'ink-coverage') + '_запечатка.csv';
+  link.download = (base || 'ink-coverage') + '.csv';
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }

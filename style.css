@@ -1,6 +1,16 @@
 :root {
   --bg: #f5f5f7;
   --surface: #ffffff;
+  --surface-2: #e8e8ed;
+  --surface-2-hover: #dcdce1;
+  --dropzone-border: #c7c7cc;
+  --dropzone-hover-bg: #f8fbff;
+  --dropzone-dragover-bg: #eef6ff;
+  --accent-tint-bg: #f0f6ff;
+  --btn-secondary-bg: #1d1d1f;
+  --btn-secondary-text: #ffffff;
+  --btn-secondary-hover-bg: #333336;
+  --cost-hero-bg: #242428;
   --text: #1d1d1f;
   --text-secondary: #6e6e73;
   --border: #e5e5e7;
@@ -19,6 +29,41 @@
   --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
   font-synthesis: none;
+}
+
+/* Тёмная тема: переключатель ставит атрибут на <html>, чтобы сработать
+   раньше первой отрисовки и не мигнуть светлым при загрузке (см. inline-скрипт
+   в <head>). Белый лист превью (.page-preview) и тёмная плашка стоимости
+   (--cost-hero-bg) не подстраиваются под яркую светлую тему — это то же самое
+   решение, что и в ink-coverage.html: бумага и акцентная панель остаются
+   собой в обеих темах, это не фон интерфейса. */
+:root[data-theme="dark"] {
+  --bg: #1c1c1e;
+  --surface: #2c2c2e;
+  --surface-2: #3a3a3c;
+  --surface-2-hover: #48484a;
+  --dropzone-border: #48484a;
+  --dropzone-hover-bg: rgba(10,132,255,.12);
+  --dropzone-dragover-bg: rgba(10,132,255,.18);
+  --accent-tint-bg: rgba(10,132,255,.16);
+  --btn-secondary-bg: #e8e8ea;
+  --btn-secondary-text: #1d1d1f;
+  --btn-secondary-hover-bg: #d4d4d6;
+  --cost-hero-bg: #151517;
+  --text: #f2f2f3;
+  --text-secondary: #98989d;
+  --border: #3d3d40;
+  --accent: #0a84ff;
+  --accent-hover: #379eff;
+  --accent-active: #0a6fd6;
+  --red: #ff6b64;
+  --green: #30c46a;
+  --error-bg: #3a2323;
+  --error-text: #ff6b6b;
+  --notice-bg: #3a331c;
+  --notice-text: #e0c476;
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.4);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
 }
 
 * {
@@ -50,6 +95,39 @@ body {
 .header {
   text-align: center;
   margin-bottom: 8px;
+  position: relative;
+}
+
+.theme-toggle {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  line-height: 1;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--surface-2);
+}
+
+/* Пиктограмма — луна или солнце — показывает, какая тема ВКЛЮЧИТСЯ после
+   клика, а не текущую: это подсказка действия, а не индикатор состояния. */
+.theme-toggle-icon::before {
+  content: '🌙';
+}
+
+:root[data-theme="dark"] .theme-toggle-icon::before {
+  content: '☀️';
 }
 
 .header h1 {
@@ -82,7 +160,7 @@ body {
 /* Dropzone */
 
 .dropzone {
-  border: 1.5px dashed #c7c7cc;
+  border: 1.5px dashed var(--dropzone-border);
   border-radius: var(--radius-md);
   padding: 22px 24px;
   display: flex;
@@ -96,12 +174,12 @@ body {
 
 .dropzone:hover {
   border-color: var(--accent);
-  background: #f8fbff;
+  background: var(--dropzone-hover-bg);
 }
 
 .dropzone.dragover {
   border-color: var(--accent);
-  background: #eef6ff;
+  background: var(--dropzone-dragover-bg);
   transform: scale(1.005);
 }
 
@@ -158,12 +236,12 @@ body {
 }
 
 .btn-secondary {
-  background: var(--text);
-  color: #fff;
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
 }
 
 .btn-secondary:hover {
-  background: #333336;
+  background: var(--btn-secondary-hover-bg);
 }
 
 .btn-text {
@@ -173,7 +251,7 @@ body {
 }
 
 .btn-text:hover {
-  background: #f0f6ff;
+  background: var(--accent-tint-bg);
 }
 
 .btn:disabled {
@@ -252,7 +330,7 @@ body {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid #d9d9de;
+  border: 2px solid var(--border);
   border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
@@ -313,7 +391,7 @@ body {
   position: absolute;
   top: 30px;
   right: 32px;
-  background: #f0f0f2;
+  background: var(--surface-2);
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 500;
@@ -427,7 +505,7 @@ body {
 /* Cost hero */
 
 .cost-hero {
-  background: #242428;
+  background: var(--cost-hero-bg);
   border-radius: var(--radius-md);
   padding: 22px 32px;
   display: flex;
@@ -496,6 +574,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Лист бумаги светлый всегда, даже в тёмной теме — это цвет данных
+     (превью самого макета), не UI-хром. */
   background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

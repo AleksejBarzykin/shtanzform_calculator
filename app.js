@@ -101,6 +101,23 @@ async function resolveDieLayer(pdfDoc) {
   return { status: 'needs-manual', ocgIds: [], layerNames: [], groups: list };
 }
 
+/* ---------- Theme toggle ----------
+   The initial theme is already applied by the inline script in <head>
+   (before first paint, to avoid a light-theme flash). This just wires the
+   button to flip it and remember the choice. */
+
+const themeToggleBtn = document.getElementById('themeToggle');
+themeToggleBtn.addEventListener('click', () => {
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  if (isDark) {
+    delete document.documentElement.dataset.theme;
+    localStorage.setItem('shtanzTheme', 'light');
+  } else {
+    document.documentElement.dataset.theme = 'dark';
+    localStorage.setItem('shtanzTheme', 'dark');
+  }
+});
+
 /* ---------- DOM references ---------- */
 
 const dropzone = document.getElementById('dropzone');

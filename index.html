@@ -5,13 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Калькулятор длины ножей штанцформы</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
+<script>
+// Тема ставится здесь, до отрисовки body, — иначе страница на долю секунды
+// мигнёт светлой и только потом переключится в сохранённую тёмную.
+(function () {
+  var saved = localStorage.getItem('shtanzTheme');
+  var dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  if (dark) document.documentElement.dataset.theme = 'dark';
+})();
+</script>
 </head>
 <body>
 
 <div class="page">
 
   <header class="header">
+    <button type="button" id="themeToggle" class="theme-toggle" title="Тёмная тема" aria-label="Переключить тёмную тему">
+      <span class="theme-toggle-icon"></span>
+    </button>
     <h1>Калькулятор штанцформы</h1>
     <p class="subtitle">Расчёт длины ножей и биговки по PDF/AI-макету</p>
   </header>
@@ -67,6 +79,6 @@
 </div>
 
 <script src="lib/pdf.min.js"></script>
-<script src="app.js?v=18"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>
