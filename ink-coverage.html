@@ -158,8 +158,13 @@ body {
   border: none; border-radius: 980px; padding: 9px 20px; font-size: 14px; font-weight: 500;
   cursor: pointer; font-family: inherit; transition: .15s;
 }
-.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary { background: var(--accent); color: #fff; transition: background .15s; }
 .btn-primary:hover { background: var(--accent-hover); }
+/* Форму тронули, а «Пересчитать» ещё не нажали — отчёт на экране показывает
+   старые параметры. Цвет заимствован у error-текста: он уже красный что при
+   светлой, что при тёмной теме, отдельную переменную заводить незачем. */
+.btn-primary.dirty { background: var(--error-text); }
+.btn-primary.dirty:hover { background: var(--error-text); filter: brightness(1.1); }
 .btn-secondary { background: var(--surface-2); color: var(--text); }
 .btn-secondary:hover { background: var(--surface-2-hover); }
 .btn-green { background: var(--green); color: #fff; }
@@ -453,11 +458,11 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
         <div class="field">
           <label for="baseSel">База для 100 %</label>
           <select id="baseSel">
-            <option value="page" selected>Страница / артборд файла</option>
-            <option value="custom">Свой формат листа</option>
+            <option value="page">Страница / артборд файла</option>
+            <option value="custom" selected>Свой формат листа</option>
             <option value="bbox">Габарит запечатанной области</option>
           </select>
-          <div id="customSize" class="field-inline hidden">
+          <div id="customSize" class="field-inline">
             <input type="number" id="sheetW" value="700" min="1" step="0.1" title="Ширина, мм">
             <input type="number" id="sheetH" value="500" min="1" step="0.1" title="Высота, мм">
           </div>
@@ -1928,7 +1933,7 @@ el('themeToggle').addEventListener('click', () => {
  * плашками, своей формой параметров и своим отчётом. Файлов может быть
  * несколько — например крышка и дно одной коробки печатаются на разных листах.
  */
-const state = { jobs: [], viewItems: [] };
+const state = { jobs: [], viewItems: [], orderPdfButtons: [] };
 
 // Разрешение анализа зафиксировано: выбор из интерфейса убран, но параметр
 // живёт дальше — при необходимости достаточно вернуть селектор.
@@ -1997,6 +2002,7 @@ function cloneSettingsForm() {
   });
   fld(form, 'baseSel').addEventListener('change', () => syncCustomSize(form));
   wireFormKeys(form);
+  syncCustomSize(form); // видимость полей формата листа — по значению select в разметке
   return form;
 }
 
@@ -2176,6 +2182,8 @@ async function clearJobs() {
   for (const job of state.jobs) await closeJob(job);
   state.jobs = [];
   state.viewItems = [];
+  state.orderPdfButtons = [];
+  pdfAllBtn.classList.remove('dirty');
   resultsEl.innerHTML = '';
 }
 
@@ -2194,6 +2202,8 @@ async function removeJob(job) {
   resultsEl.innerHTML = '';
   resultsEl.classList.add('hidden');
   state.viewItems = [];
+  state.orderPdfButtons = [];
+  pdfAllBtn.classList.remove('dirty');
   csvBtn.disabled = true;
 }
 
@@ -2237,6 +2247,7 @@ async function loadJob(file, prefix) {
     pdfDoc: null, underDoc: null, scans: [], stats: [], spotIndex: null, layers: [],
     form: cloneSettingsForm(), settings: null,
     disabledInks: new Set(), // краски, снятые галочкой в блоке «Краски в файле»
+    dirty: false, pdfButtons: [], // несчитанные правки в форме — см. markJobDirty
   };
 
   try {
@@ -2319,7 +2330,15 @@ function renderAll() {
     job.spotIndex = job.settings.useSpots
       ? buildSpotIndex(job.spots, job.scans, job.settings.gcr) : null;
     job.stats = job.scans.map((scan) => computeStats(scan, job.settings, job.spotIndex, job.disabledInks));
+    // Пересчитано под текущую форму — «Пересчитать» и кнопки выгрузки этой
+    // работы гаснут, пока форму снова не тронут. Каждая работа считается по
+    // своей форме, поэтому сбрасываем у всех разом: renderAll всегда
+    // синхронизирует все формы со всеми расчётами.
+    job.dirty = false;
+    job.pdfButtons = []; // старые ссылки умрут вместе со старыми карточками
+    setRecalcDirty(job, false);
   }
+  state.orderPdfButtons = [];
 
   // Формы живут в state.jobs и переживают перерисовку: очистка контейнера их
   // только отцепляет, введённые значения остаются на месте.
@@ -2330,6 +2349,9 @@ function renderAll() {
   if (state.jobs.length > 1) resultsEl.appendChild(buildOrderCard());
   state.jobs.forEach((job, i) => resultsEl.appendChild(buildFileGroup(job, i)));
   resultsEl.appendChild(buildAccuracyCard(state.jobs[0].settings));
+  // Свежепостроенные карточки не бывают несчитанными — гасим то, что могло
+  // остаться на общих кнопках от прошлого состояния.
+  syncGlobalPdfDirty();
 }
 
 /** Блок одного файла: шапка, свои параметры, примечания и отчёт по страницам. */
@@ -2370,6 +2392,31 @@ function buildFileGroup(job, index) {
   return group;
 }
 
+/** Красная точка на «Пересчитать»: показывает, есть ли в форме несчитанные правки. */
+function setRecalcDirty(job, dirty) {
+  const btn = job.form.querySelector('[data-act="recalc"]');
+  if (btn) btn.classList.toggle('dirty', dirty);
+}
+
+/**
+ * Форму тронули — краснеют «Пересчитать» этой работы, её кнопки «Скачать PDF»
+ * (они выгружают то, что сейчас на экране, а экран уже отстал от формы), и,
+ * если файлов несколько, — сводка по заказу и общая кнопка: они собраны из
+ * всех работ, и несчитанная правка любой из них делает устаревшим весь отчёт.
+ */
+function markJobDirty(job) {
+  job.dirty = true;
+  setRecalcDirty(job, true);
+  job.pdfButtons.forEach((btn) => btn.classList.add('dirty'));
+  syncGlobalPdfDirty();
+}
+
+function syncGlobalPdfDirty() {
+  const any = state.jobs.some((j) => j.dirty);
+  pdfAllBtn.classList.toggle('dirty', any);
+  state.orderPdfButtons.forEach((btn) => btn.classList.toggle('dirty', any));
+}
+
 /** Кнопки формы навешиваются один раз — форма переживает перерисовку. */
 function wireFormActions(job) {
   if (job.wired) return;
@@ -2384,6 +2431,24 @@ function wireFormActions(job) {
   const applyAll = act('apply-all');
   applyAll.addEventListener('click', () => { copySettingsToAll(job.form); renderAll(); });
   job.applyAllBtn = applyAll;
+
+  // Правка любого поля — красим «Пересчитать», пока по ней не нажали. Оба
+  // события нужны вместе: select и чекбокс не всегда шлют input, текстовые
+  // поля — не всегда change до потери фокуса.
+  ['input', 'change'].forEach((ev) => {
+    job.form.addEventListener(ev, (e) => {
+      if (e.target.closest('[data-act]')) return; // клики по самим кнопкам не в счёт
+      // Галочки красок пересчитывают сами себя сразу — не в счёт, иначе кнопка
+      // краснела бы сразу же после того, как renderAll её уже погасил. Метка
+      // проверяется по классу самого элемента, а не по контейнеру: свой
+      // change-обработчик галочки уже вызвал renderAll(), а тот перестроил
+      // #inkToggles — к моменту, когда событие всплывёт досюда, чекбокс
+      // отсоединён от контейнера, и closest() до него уже не дойдёт. До
+      // родительской «таблетки» — один шаг вверх, эта связь ещё цела.
+      if (e.target.closest('.ink-toggle')) return;
+      markJobDirty(job);
+    });
+  });
 }
 
 /**
@@ -2608,7 +2673,11 @@ function buildOrderCard() {
         'Потери на приладку учтены по разу на каждый лист, где краска нанесена, — это отдельные прогоны.',
     }) +
     `<h3>Листы заказа</h3><ul class="order-files">${files}</ul>`;
-  card.appendChild(buildShotActions(card, null, null));
+  const actions = buildShotActions(card, null, null);
+  card.appendChild(actions);
+  // Сводка складывается из всех работ — красна вместе с общей кнопкой, если
+  // несчитанные правки есть хоть у одной из них.
+  state.orderPdfButtons.push(actions.querySelector('[data-act=pdf]'));
   return card;
 }
 
@@ -2623,7 +2692,9 @@ function buildTotalCard(job) {
     `<div class="page-meta" style="margin-bottom:14px">Суммарная площадь базы: ${fmt(totalBaseM2, 4)} м² на 1 экземпляр</div>` +
     channelTiles(rows) +
     inkTable(rows, sheetTableOpts(settings));
-  card.appendChild(buildShotActions(card, job, null));
+  const actions = buildShotActions(card, job, null);
+  card.appendChild(actions);
+  job.pdfButtons.push(actions.querySelector('[data-act=pdf]'));
   return card;
 }
 
@@ -2680,7 +2751,9 @@ function buildPageCard(job, i, stats) {
   body.appendChild(right);
 
   card.appendChild(body);
-  card.appendChild(buildShotActions(card, job, i));
+  const actions = buildShotActions(card, job, i);
+  card.appendChild(actions);
+  job.pdfButtons.push(actions.querySelector('[data-act=pdf]'));
   return card;
 }
 
