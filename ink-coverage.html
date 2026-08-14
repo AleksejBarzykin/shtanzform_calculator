@@ -1533,11 +1533,14 @@ async function scanPage(page, dpi, pageUnderneath) {
    Пересчёт статистики по гистограмме (быстрый — без растрирования)
    ========================================================================= */
 
+// rgb продублирован рядом с css-переменной: плитки красятся через CSS
+// (он же меняется в тёмной теме — впрочем, для плашек красок не меняется),
+// а сепарации в превью красятся пикселями canvas, где переменную не прочитать.
 const CHANNEL_META = [
-  { key: 'c', label: 'Cyan',    css: 'var(--ink-c)' },
-  { key: 'm', label: 'Magenta', css: 'var(--ink-m)' },
-  { key: 'y', label: 'Yellow',  css: 'var(--ink-y)' },
-  { key: 'k', label: 'Black',   css: 'var(--ink-k)' },
+  { key: 'c', label: 'Cyan',    css: 'var(--ink-c)', rgb: [0x00, 0xa0, 0xe0] },
+  { key: 'm', label: 'Magenta', css: 'var(--ink-m)', rgb: [0xe5, 0x00, 0x7d] },
+  { key: 'y', label: 'Yellow',  css: 'var(--ink-y)', rgb: [0xff, 0xd5, 0x00] },
+  { key: 'k', label: 'Black',   css: 'var(--ink-k)', rgb: [0x1d, 0x1d, 0x1f] },
 ];
 
 const SPOT_TOLERANCE = 7;  // допуск в единицах RGB — плашки заливаются ровным цветом
@@ -2737,7 +2740,10 @@ function inkTable(rows, opts) {
       <td>${fmt(ch.coverage, 2)}</td>
       <td>${fmt(ch.inkAreaM2, 4)}</td>
       <td>${fmt(ch.grams, 3)}</td>
-      <td>${fmt(ch.tirazhKg, 3)}</td>
+      <!-- Тираж округляем до сотых: килограммы точнее не отвешивают, а лишние
+           знаки читаются как ложная точность. Граммы на лист оставлены с тремя
+           знаками — там третий знак ещё различим. -->
+      <td>${fmt(ch.tirazhKg, 2)}</td>
     </tr>`).join('');
   return `<h3>Расход краски</h3><div class="table-wrap"><table>
     <thead><tr><th>Краска</th><th>Покрытие, %</th><th>Площадь, м²</th><th>${opts.perSheetHead}</th><th>${opts.tirazhHead}</th></tr></thead>
@@ -2749,10 +2755,12 @@ function buildSeparationPreviews(job, scan, stats, pageIndex) {
   const wrap = document.createElement('div');
   wrap.className = 'seps';
 
-  // Сепарации показываем только для красок, попавших в отчёт.
-  const specs = CHANNEL_META.map((meta, ch) => ({ label: meta.label, key: meta.key, spec: { type: 'cmyk', ch } }))
+  // Сепарации показываем только для красок, попавших в отчёт. Цвет краски
+  // передаётся вместе со спецификацией — сепарация красится в её тон, а не
+  // в градации серого, и превью magenta выглядит magenta.
+  const specs = CHANNEL_META.map((meta, ch) => ({ label: meta.label, key: meta.key, spec: { type: 'cmyk', ch, color: meta.rgb } }))
     .filter(({ key }) => stats.channels.some((c) => c.key === key))
-    .concat(stats.spotChannels.map((sc) => ({ label: sc.label, spec: { type: 'spot', name: sc.label } })));
+    .concat(stats.spotChannels.map((sc) => ({ label: sc.label, spec: { type: 'spot', name: sc.label, color: parseCssColor(sc.css) } })));
 
   specs.forEach(({ label, spec }) => {
     const canvas = document.createElement('canvas');
@@ -3335,6 +3343,19 @@ async function renderHiRes(job, pageIndex, cssWidth, spec, wantPx) {
   return canvas;
 }
 
+/** 'rgb(r,g,b)' или '#rrggbb'/'#rgb' → [r,g,b]. Плашка без снятой шкалы красится
+    нейтральным серым — её цвет ('#bbb') означает «неизвестен», а не «серый». */
+function parseCssColor(css) {
+  const rgb = /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(css);
+  if (rgb) return [+rgb[1], +rgb[2], +rgb[3]];
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(css);
+  if (hex) {
+    const h = hex[1].length === 3 ? [...hex[1]].map((c) => c + c).join('') : hex[1];
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  return [128, 128, 128];
+}
+
 /** Доля одной краски в уже разобранном наборе: {type:'cmyk', ch} либо {type:'spot', name}. */
 function inkValueFrom(inks, spec) {
   if (spec.type === 'spot') {
@@ -3354,13 +3375,17 @@ function quantizeChannel(v) {
 }
 
 /**
- * Превращает RGB-растр в градации серого по одной краске (на месте).
+ * Перекрашивает RGB-растр в тон одной краски (на месте): бумага остаётся
+ * белой, а сама краска — не серой, а её настоящим цветом, светлеющим к
+ * бумаге по доле тона. Так magenta-сепарация выглядит magenta, а не серым
+ * прямоугольником, который надо подписывать, чтобы не перепутать с другими.
  * underData — растр без объектов с наложением; там, где он отличается,
  * краски сводятся так же, как в расчёте, иначе сепарации показывали бы не то,
  * что стоит в цифрах.
  */
 function separationFromImage(img, spec, gcr, underData, spotIndex) {
   const d = img.data;
+  const [ir, ig, ib] = spec.color || [0, 0, 0]; // без цвета — прежнее поведение, чёрным по белому
   const cache = new Map();
   for (let p = 0; p < d.length; p += 4) {
     const r = quantizeChannel(d[p]), g = quantizeChannel(d[p + 1]), b = quantizeChannel(d[p + 2]);
@@ -3376,14 +3401,15 @@ function separationFromImage(img, spec, gcr, underData, spotIndex) {
       }
     }
 
-    let v = cache.get(key);
-    if (v === undefined) {
+    let mix = cache.get(key);
+    if (mix === undefined) {
       const top = resolveInks(r, g, b, gcr, spotIndex);
       const inks = merged ? mergeOverprint(top, resolveInks(r2, g2, b2, gcr, spotIndex)) : top;
-      v = 255 - Math.round(inkValueFrom(inks, spec) * 255);
-      cache.set(key, v);
+      const t = inkValueFrom(inks, spec);
+      mix = [Math.round(255 + (ir - 255) * t), Math.round(255 + (ig - 255) * t), Math.round(255 + (ib - 255) * t)];
+      cache.set(key, mix);
     }
-    d[p] = v; d[p + 1] = v; d[p + 2] = v; d[p + 3] = 255;
+    d[p] = mix[0]; d[p + 1] = mix[1]; d[p + 2] = mix[2]; d[p + 3] = 255;
   }
 }
 
@@ -3423,7 +3449,7 @@ function exportCsv() {
         lines.push([
           i + 1, ch.label,
           num(ch.coverage, 2), num(st.baseAreaM2, 4), num(ch.inkAreaM2, 4),
-          num(grams, 3), num(tirazhKg, 3),
+          num(grams, 3), num(tirazhKg, 2),
         ].join(';'));
       });
       lines.push([i + 1, 'Запечатанная площадь', num(st.printedPercent, 2), '', '', '', ''].join(';'));
@@ -3439,7 +3465,7 @@ function exportCsv() {
     lines.push(['Сводка по заказу', orderTitle()].join(';'));
     lines.push(['Краска', 'Покрытие %', 'Площадь м2', 'На 1 комплект г', 'На весь заказ кг'].join(';'));
     for (const ch of rows) {
-      lines.push([ch.label, num(ch.coverage, 2), num(ch.inkAreaM2, 4), num(ch.grams, 3), num(ch.tirazhKg, 3)].join(';'));
+      lines.push([ch.label, num(ch.coverage, 2), num(ch.inkAreaM2, 4), num(ch.grams, 3), num(ch.tirazhKg, 2)].join(';'));
     }
     lines.push(['Площадь комплекта м2', num(totalBaseM2, 4)].join(';'));
   }
