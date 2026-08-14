@@ -104,17 +104,55 @@ body {
 .dropzone-text { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
 .dropzone-subtext { font-size: 13px; color: var(--text-secondary); margin: 0 0 12px; }
 
-/* Галочки найденных красок */
-.ink-toggles { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
-.ink-toggle {
-  display: flex; align-items: center; gap: 7px; font-size: 13px;
-  cursor: pointer; user-select: none;
+/* =========================================================================
+   Краски работы — переключатели плат.
+   Каждая краска подкрашивает свою «таблетку» собственным тоном: список читается
+   как набор печатных секций, а не как строка одинаковых галочек. Выключенная
+   краска не исчезает, а гаснет и уходит в пунктир — видно, что она в файле есть
+   и снята вручную.
+   ========================================================================= */
+.ink-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.ink-section-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.ink-section-title {
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: .04em;
 }
-.ink-toggle input { margin: 0; }
-/* Выключенная краска гасится, но остаётся читаемой: её видно, что она есть в
-   файле и просто исключена вручную. */
-.ink-toggle.off { color: var(--text-secondary); }
-.ink-toggle.off .swatch { opacity: .35; }
+.ink-section-hint { font-size: 12px; color: var(--text-secondary); opacity: .8; }
+.ink-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.ink-toggle {
+  --ink: var(--text-secondary);
+  position: relative; display: inline-flex; align-items: center; gap: 9px;
+  padding: 7px 15px 7px 11px; border-radius: 980px;
+  border: 1px solid color-mix(in srgb, var(--ink) 34%, var(--border));
+  background: color-mix(in srgb, var(--ink) 10%, var(--surface));
+  font-size: 13px; line-height: 1; white-space: nowrap;
+  cursor: pointer; user-select: none;
+  transition: background .16s ease, border-color .16s ease, color .16s ease, transform .12s ease;
+}
+.ink-toggle:hover { transform: translateY(-1px); }
+.ink-toggle:active { transform: none; }
+/* Родной чекбокс убран из вида, но остаётся в фокусной цепочке и доступен
+   с клавиатуры — отсюда обводка по :focus-visible внутри. */
+.ink-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.ink-toggle:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ink-dot {
+  width: 13px; height: 13px; border-radius: 50%; flex: none;
+  background: var(--ink); border: 1px solid var(--swatch-border);
+  /* Кольцо цветом текста: без него чёрная краска тонет в тёмной теме, а жёлтая
+     растворяется в светлой — контур читается при любом тоне и любой теме. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 24%, transparent);
+  transition: background .16s ease, box-shadow .16s ease;
+}
+.ink-name { font-variant-numeric: tabular-nums; }
+
+.ink-toggle.off {
+  background: transparent; border-style: dashed;
+  border-color: var(--border); color: var(--text-secondary);
+}
+.ink-toggle.off .ink-dot { background: transparent; box-shadow: none; border-color: var(--text-secondary); opacity: .55; }
+.ink-toggle.off .ink-name { text-decoration: line-through; text-decoration-thickness: 1px; opacity: .75; }
 
 .btn {
   border: none; border-radius: 980px; padding: 9px 20px; font-size: 14px; font-weight: 500;
@@ -320,9 +358,12 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
      последнем: горизонтальный отступ у сквозного блока постоянен, а
      вертикальный отрабатывает один раз за весь поток. */
   .page { max-width: none; padding: 8mm 9mm; gap: 26px; }
-  /* Карточка загрузки целиком: пустая рамка на пол-листа отчёту не нужна. */
+  /* На бумагу идёт только сам расчёт. Шапка файла с формой и примечаниями и
+     методичка о точности — экранные, в отчёте они не нужны: имя макета и так
+     стоит в заголовке каждой страницы. */
   .header, .footer, #uploadCard, .card-actions, .file-remove,
-  .settings, .settings-title, .settings-actions, .lightbox { display: none !important; }
+  .settings, .settings-title, .settings-actions, .lightbox,
+  .accuracy-card, .file-group > .card:first-child { display: none !important; }
   /* Запас сверху и снизу держит сама карточка: на листе-продолжении она
      начинается от самого края, и без него текст ушёл бы в непечатаемую зону. */
   .card { box-shadow: none; border: 1px solid #d0d0d5; border-radius: 8px; padding: 7mm; }
@@ -490,10 +531,18 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-si
       <details class="collapse" id="inkBlock">
         <summary>Краски в файле</summary>
         <div class="collapse-body">
-          <div id="inkToggles" class="ink-toggles"></div>
           <div id="noticeBox" class="notice-box hidden"></div>
         </div>
       </details>
+      <!-- Переключатели красок стоят снаружи раскрывающегося блока: ими
+           пользуются, а примечания под ним — справочные и обычно свёрнуты. -->
+      <div id="inkSection" class="ink-section hidden">
+        <div class="ink-section-head">
+          <span class="ink-section-title">Краски работы</span>
+          <span class="ink-section-hint">снимите краску — она уйдёт из отчёта, превью и выгрузок</span>
+        </div>
+        <div id="inkToggles" class="ink-toggles"></div>
+      </div>
     </div>
   </template>
 
@@ -2048,7 +2097,7 @@ pdfAllBtn.addEventListener('click', async () => {
   say('Готовлю к печати…');
   try {
     const name = state.jobs.length > 1
-      ? orderTitle().replace(/\s+/g, '_')
+      ? orderTitle()
       : shotBaseName(state.jobs[0], null);
     await printReport(null, name, (i, n) => say(`Готовлю превью ${i} из ${n}…`));
     say('В окне печати выберите «Сохранить как PDF»');
@@ -2341,23 +2390,29 @@ function wireFormActions(job) {
  */
 function renderInkToggles(job) {
   const box = fld(job.form, 'inkToggles');
+  const section = fld(job.form, 'inkSection');
   box.innerHTML = '';
 
   // Список собирается по всем страницам файла: на разных страницах может быть
-  // разный набор красок, а галочка нужна одна на файл.
+  // разный набор красок, а переключатель нужен один на файл.
   const seen = new Map();
   for (const st of job.stats) {
     for (const ink of st.foundInks) if (!seen.has(ink.label)) seen.set(ink.label, ink);
   }
+  section.classList.toggle('hidden', !seen.size);
   if (!seen.size) return;
 
   for (const ink of seen.values()) {
     const on = !job.disabledInks.has(ink.label);
     const label = document.createElement('label');
     label.className = 'ink-toggle' + (on ? '' : ' off');
+    // Тон краски уходит в переменную: от неё считаются и точка, и подложка,
+    // и рамка «таблетки».
+    label.style.setProperty('--ink', ink.css);
+    label.title = on ? `Исключить «${ink.label}» из отчёта` : `Вернуть «${ink.label}» в отчёт`;
     label.innerHTML = `<input type="checkbox"${on ? ' checked' : ''}>` +
-      `<span class="swatch" style="background:${ink.css}"></span>` +
-      `<span>${escapeHtml(ink.label)}</span>`;
+      '<span class="ink-dot"></span>' +
+      `<span class="ink-name">${escapeHtml(ink.label)}</span>`;
     label.querySelector('input').addEventListener('change', (e) => {
       if (e.target.checked) job.disabledInks.delete(ink.label);
       else job.disabledInks.add(ink.label);
@@ -2485,8 +2540,25 @@ function aggregateInks(entries) {
  * различаются уже на втором знаке («…_3_…», «…_4_…»). Поэтому берём слова,
  * встречающиеся во всех именах, в порядке первого файла.
  */
+const REPORT_PREFIX = 'РАСХОД КРАСКИ';
+
+/**
+ * Имя отчёта из имени макета. Монтажи называются «дата_номер_название_mont»:
+ * дата и порядковый номер работы в отчёте не нужны, а служебный хвост «_mont»
+ * относится к монтажу, а не к расчёту.
+ *   11082026_1_Yapiko_box_roll_mont → РАСХОД КРАСКИ_Yapiko_box_roll
+ * Номер работы берётся шаблоном, а не первыми десятью знаками: у двузначного
+ * номера («…_10_…») обрезка по длине разрезала бы его пополам.
+ */
+function reportName(fileName) {
+  return String(fileName || '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/^\d{8}_\d+/, REPORT_PREFIX)
+    .replace(/_mont$/i, '');
+}
+
 function orderTitle() {
-  const names = state.jobs.map((j) => j.fileName.replace(/\.[^.]+$/, ''));
+  const names = state.jobs.map((j) => reportName(j.fileName));
   if (!names.length) return 'Общий расход краски';
   if (names.length === 1) return names[0];
   const split = (s) => s.split(/[_\s]+/).filter(Boolean);
@@ -2498,7 +2570,10 @@ function orderTitle() {
     seen.add(key);
     return true;
   });
-  return common.length >= 2 ? common.join(' ') : 'Общий расход краски';
+  if (common.length < 2) return 'Общий расход краски';
+  // Слова заказа соединяются подчёркиванием — как в имени макета, — а сам
+  // заголовок «РАСХОД КРАСКИ» остаётся двумя словами через пробел.
+  return common.join('_').replace(/^РАСХОД_КРАСКИ/, REPORT_PREFIX);
 }
 
 /** Сводка по заказу: краска со всех листов вместе. */
@@ -2705,7 +2780,8 @@ function makeReadyText() {
 
 function buildAccuracyCard(settings) {
   const card = document.createElement('section');
-  card.className = 'card';
+  // accuracy-card — метка для печати: методичка на бумагу не идёт.
+  card.className = 'card accuracy-card';
   card.innerHTML = `<details class="collapse collapse-card"><summary>Точность и как это считается</summary>
   <div class="collapse-body" style="font-size:13px; line-height:1.6; color:var(--text-secondary)">
     <p><b>Метод.</b> Страница растрируется через pdf.js при ${settings.dpi} dpi на белом фоне. pdf.js отдаёт растр
@@ -2939,8 +3015,8 @@ async function cardToBlob(card, onProgress) {
  * job === null — сводка по заказу.
  */
 function shotBaseName(job, pageIndex) {
-  if (!job) return `${orderTitle().replace(/\s+/g, '_')}_сводка`;
-  const base = (job.fileName || 'запечатка').replace(/\.[^.]+$/, '');
+  if (!job) return `${orderTitle()}_сводка`;
+  const base = reportName(job.fileName) || 'запечатка';
   if (pageIndex === null) return `${base}_итого`;
   return job.scans.length > 1 ? `${base}_стр${pageIndex + 1}` : base;
 }
@@ -3369,8 +3445,7 @@ function exportCsv() {
   }
 
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const base = state.jobs.length > 1 ? orderTitle().replace(/\s+/g, '_')
-    : state.jobs[0].fileName.replace(/\.[^.]+$/, '');
+  const base = state.jobs.length > 1 ? orderTitle() : reportName(state.jobs[0].fileName);
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = (base || 'ink-coverage') + '.csv';
